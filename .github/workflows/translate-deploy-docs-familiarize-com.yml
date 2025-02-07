@@ -1,0 +1,70 @@
+name: Translate & Deploy Site
+on:
+  workflow_dispatch:
+
+jobs:
+  manage-content:
+    runs-on: ubuntu-latest
+    env:
+      # Relative path to Hugo content on the runner
+      HUGO_CONTENT_PATH: hugo_content/content/en
+      WEBSITE_MANAGER_PATH: website_manager/websiteManager
+
+    steps:
+      # 1. Checkout websiteManager repo (private)
+      - name: Checkout C# Project (websiteManager)
+        uses: actions/checkout@v3
+        with:
+          repository: salmansarfraz/websiteManager
+          path: website_manager
+          token: ${{ secrets.PAT_FOR_PRIVATE_REPOS }}
+          fetch-depth: 0
+
+      # 2. Checkout Hugo repo (private)
+      - name: Checkout Hugo Repository
+        uses: actions/checkout@v3
+        with:
+          repository: familiarizeptyltd/docs.familiarize.com
+          path: hugo_content
+          token: ${{ secrets.PAT_FOR_PRIVATE_REPOS }}
+          fetch-depth: 0
+
+      # 3. Setup .NET environment
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '7.0.x'
+
+      # 4. Build the C# project
+      - name: Build C# project
+        run: dotnet build website_manager/websiteManager/websiteManager.csproj --configuration Release
+
+      # 5. Run the C# project
+      #    This should now read environment variables and process files in hugo_content/content/en
+      - name: Run C# Tool
+        run: dotnet run --project website_manager/websiteManager/websiteManager.csproj
+
+      # 6. Commit & Push Changes to websiteManager Repo
+      #    Now that the .txt/.json files are updated in `website_manager/`, commit and push them.
+      - name: Commit & Push Changes to websiteManager
+        run: |
+          cd website_manager
+          git config user.name "Salman Sarfraz"
+          git config user.email "kh.salman.sarfraz@gmail.com"
+          git add .
+          # If no changes are present, commit won't run. That's fine.
+          git diff --cached --quiet || git commit -m "Updated txt/json files via automated workflow"
+          # Push back to main branch of websiteManager repo
+          git push origin HEAD:main
+
+      # 7. Commit & Push Changes to Hugo Repo
+      #    Similarly, we now commit and push any updated Hugo content in `hugo_content/`.
+      - name: Commit & Push Changes to Hugo repo
+        run: |
+          cd hugo_content
+          git config user.name "Salman Sarfraz"
+          git config user.email "kh.salman.sarfraz@gmail.com"
+          git add .
+          git diff --cached --quiet || git commit -m "Updated Hugo content via automated workflow"
+          # Push back to main branch of the Hugo repo
+          git push origin HEAD:main
