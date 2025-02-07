@@ -54,7 +54,7 @@ jobs:
           git config user.email "kh.salman.sarfraz@gmail.com"
           git add .
           # If no changes are present, commit won't run. That's fine.
-          git diff --cached --quiet || git commit -m "Updated txt/json files via automated workflow"
+          git diff --cached --quiet || git commit -m "Updated translations."
           # Push back to main branch of websiteManager repo
           git push origin HEAD:main
 
@@ -66,6 +66,6 @@ jobs:
           git config user.name "Salman Sarfraz"
           git config user.email "kh.salman.sarfraz@gmail.com"
           git add .
-          git diff --cached --quiet || git commit -m "Updated Hugo content via automated workflow"
+          git diff --cached --quiet || git commit -m "Translated new/updated pages to local languages."
           # Push back to main branch of the Hugo repo
           git push origin HEAD:main
