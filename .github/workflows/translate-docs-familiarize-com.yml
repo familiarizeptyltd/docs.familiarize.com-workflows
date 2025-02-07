@@ -43,7 +43,7 @@ jobs:
       # 5. Run the C# project
       #    This should now read environment variables and process files in hugo_content/content/en
       - name: Run C# Tool
-        run: dotnet run --project website_manager/websiteManager/websiteManager.csproj
+        run: dotnet run --project website_manager/websiteManager/websiteManager.csproj -- github
 
       # 6. Commit & Push Changes to websiteManager Repo
       #    Now that the .txt/.json files are updated in `website_manager/`, commit and push them.
