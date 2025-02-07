@@ -1,4 +1,4 @@
-name: Translate and Deploy docs.familiarize.com
+name: Translate docs.familiarize.com
 on:
   workflow_dispatch:
 
