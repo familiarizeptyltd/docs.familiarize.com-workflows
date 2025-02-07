@@ -18,7 +18,7 @@ jobs:
         with:
           repository: salmansarfraz/websiteManager
           path: website_manager
-          token: ${{ secrets.PAT_FOR_PRIVATE_REPOS }}
+          token: ${{ secrets.WEBSITE_MANAGER_REPO_TOKEN }}
           fetch-depth: 0
 
       # 2. Checkout Hugo repo (private)
@@ -27,7 +27,7 @@ jobs:
         with:
           repository: familiarizeptyltd/docs.familiarize.com
           path: hugo_content
-          token: ${{ secrets.PAT_FOR_PRIVATE_REPOS }}
+          token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0
 
       # 3. Setup .NET environment (.NET Core 3.1)
