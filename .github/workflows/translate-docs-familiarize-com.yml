@@ -12,7 +12,7 @@ jobs:
       WEBSITE_MANAGER_PATH: website_manager/websiteManager
 
     steps:
-      # 1. Checkout websiteManager repo (private)
+      # 1. Checkout websiteManager App repo (private)
       - name: Checkout C# Project (websiteManager)
         uses: actions/checkout@v3
         with:
@@ -21,7 +21,7 @@ jobs:
           token: ${{ secrets.WEBSITE_MANAGER_REPO_TOKEN }}
           fetch-depth: 0
 
-      # 2. Checkout Hugo repo (private)
+      # 2. Checkout Hugo Content repo (private)
       - name: Checkout Hugo Repository
         uses: actions/checkout@v3
         with:
@@ -30,7 +30,7 @@ jobs:
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0
 
-      # 3. Setup .NET environment (.NET Core 3.1)
+      # 3. Setup .NET environment (.NET 8)
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
@@ -52,6 +52,7 @@ jobs:
           cd website_manager
           git config user.name "Salman Sarfraz"
           git config user.email "kh.salman.sarfraz@gmail.com"
+          git pull --rebase origin main
           git add .
           # If no changes are present, commit won't run. That's fine.
           git diff --cached --quiet || git commit -m "Updated translations."
