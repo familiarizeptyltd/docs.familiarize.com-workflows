@@ -53,23 +53,9 @@ jobs:
           git config user.name "Salman Sarfraz"
           git config user.email "kh.salman.sarfraz@gmail.com"
           git fetch origin
-          git reset --hard origin/main
-          git add --all
-          # If no changes are present, commit won't run. That's fine.
-          git commit --allow-empty -m "Updated translations."         
-          # Push back to main branch of websiteManager repo
-          git push --force origin HEAD:main
-
-      # 7. Commit & Push Changes to Hugo Repo
-      #    Similarly, we now commit and push any updated Hugo content in `hugo_content/`.
-      - name: Commit & Push Changes to Hugo repo
-        run: |
-          cd hugo_content
-          git config user.name "Salman Sarfraz"
-          git config user.email "kh.salman.sarfraz@gmail.com"
-          git fetch origin
           git pull --strategy=ours origin main
           git add .
-          git diff --cached --quiet || git commit -m "Translated new/updated pages to local languages."
-          # Push back to main branch of the Hugo repo
+          # If no changes are present, commit won't run. That's fine.
+          git diff --cached --quiet || git commit -m "Updated translations."         
+          # Push back to main branch of websiteManager repo
           git push origin HEAD:main
