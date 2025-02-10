@@ -53,12 +53,12 @@ jobs:
           git config user.name "Salman Sarfraz"
           git config user.email "kh.salman.sarfraz@gmail.com"
           git fetch origin
-          git reset --hard origin/main
+          git pull --strategy=ours origin main
           git add .
           # If no changes are present, commit won't run. That's fine.
           git diff --cached --quiet || git commit -m "Updated translations."          
           # Push back to main branch of websiteManager repo
-          git push --force origin HEAD:main
+          git push origin HEAD:main
 
       # 7. Commit & Push Changes to Hugo Repo
       #    Similarly, we now commit and push any updated Hugo content in `hugo_content/`.
