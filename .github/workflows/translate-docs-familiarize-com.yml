@@ -51,11 +51,12 @@ jobs:
         run: |
           cd website_manager
           git config user.name "Salman Sarfraz"
-          git config user.email "kh.salman.sarfraz@gmail.com"          
+          git config user.email "kh.salman.sarfraz@gmail.com"
+          git config pull.rebase true
           git add .
           # If no changes are present, commit won't run. That's fine.
           git diff --cached --quiet || git commit -m "Updated translations."
-          git pull origin main
+          git pull --rebase origin main
           # Push back to main branch of websiteManager repo
           git push origin HEAD:main
 
@@ -66,7 +67,9 @@ jobs:
           cd hugo_content
           git config user.name "Salman Sarfraz"
           git config user.email "kh.salman.sarfraz@gmail.com"
+          git config pull.rebase true
           git add .
           git diff --cached --quiet || git commit -m "Translated new/updated pages to local languages."
+          git pull --rebase origin main
           # Push back to main branch of the Hugo repo
           git push origin HEAD:main
