@@ -51,8 +51,32 @@ jobs:
       - name: Build
         run: hugo --minify
         
-      - name: Deploy docs.familiarize.com to S3
-        run: hugo deploy --target "Production" --maxDeletes -1 --force
+      - name: Deploy docs.familiarize.com to S3 (with retries)
+        run: |
+          MAX_RETRIES=3
+          COUNT=0
+
+          until [ $COUNT -ge $MAX_RETRIES ]
+          do
+            echo "Attempt #$((COUNT+1)) to deploy via hugo..."
+            hugo deploy --target "Production" --maxDeletes -1 --force && break
+
+            # If we got here, the deploy failed.
+            COUNT=$((COUNT+1))
+            echo "Deploy failed on attempt #$COUNT."
+
+            # If we haven't hit the max tries, wait a bit before retrying:
+            if [ $COUNT -lt $MAX_RETRIES ]; then
+              echo "Will retry in 15 seconds..."
+              sleep 15
+            fi
+          done
+
+          # If we reached MAX_RETRIES and still haven't succeeded, exit with error
+          if [ $COUNT -ge $MAX_RETRIES ]; then
+            echo "Deployment failed after $MAX_RETRIES attempts, exiting."
+            exit 1
+          fi                    
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.FAMILIARIZE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
