@@ -1,56 +1,41 @@
-# This is a basic workflow to help you get started with Actions
-
 name: Build and deploy docs.familiarize.com
 
-# Controls when the action will run. 
 on:
-  # Triggers the workflow on push or pull request events but only for the master branch
   push:
     branches: [ main ]
     paths:
       - 'data/**'
   pull_request:
     branches: [ main1 ]
-
   workflow_run:
     workflows: ["Translate docs.familiarize.com"]
     types: [completed]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   build:
-    # The type of runner that the job will run on
+    name: Build and Deploy Job
     runs-on: ubuntu-latest
-
-    # Only proceed if the triggering workflow concluded successfully 
-    # or if triggered manually (the if-check is not evaluated for manual dispatch)
+    timeout-minutes: 60  # ⏱️ Cancel after 60 minutes if not complete
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Checkout
         uses: actions/checkout@v2
         with:
-            repository: familiarizeptyltd/docs.familiarize.com
-            token: ${{ secrets.REPO_TOKEN }}
-            submodules: true  # Fetch Hugo themes
-            fetch-depth: 0    # Fetch all history for .GitInfo and .Lastmod
+          repository: familiarizeptyltd/docs.familiarize.com
+          token: ${{ secrets.REPO_TOKEN }}
+          submodules: true
+          fetch-depth: 0
 
-      # Sets up the latest version of Hugo
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
         with:
-            hugo-version: '0.111.2' # Use 0.111.2 version to avoid URL issues with & character
-            
-      # Also specifies the theme we want to use
+          hugo-version: '0.111.2'
+
       - name: Build
         run: hugo --minify
-        
+
       - name: Deploy docs.familiarize.com to S3 (with retries)
         run: |
           MAX_RETRIES=5
@@ -61,28 +46,24 @@ jobs:
             echo "Attempt #$((COUNT+1)) to deploy via hugo..."
             hugo deploy --target "Production" --maxDeletes -1 --force && break
 
-            # If we got here, the deploy failed.
             COUNT=$((COUNT+1))
             echo "Deploy failed on attempt #$COUNT."
 
-            # If we haven't hit the max tries, wait a bit before retrying:
             if [ $COUNT -lt $MAX_RETRIES ]; then
               echo "Will retry in 15 seconds..."
               sleep 15
             fi
           done
 
-          # If we reached MAX_RETRIES and still haven't succeeded, exit with error
           if [ $COUNT -ge $MAX_RETRIES ]; then
             echo "Deployment failed after $MAX_RETRIES attempts, exiting."
             exit 1
-          fi                    
+          fi
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.FAMILIARIZE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
-      
-      # Invalidate Cloudfront Cache
-      - name: invalidate
+
+      - name: Invalidate CloudFront Cache
         uses: chetan/invalidate-cloudfront-action@master
         env:
           DISTRIBUTION: ${{ secrets.AWS_DOCS_FAMILIARIZE_DISTRIBUTION_ID }}
@@ -90,3 +71,26 @@ jobs:
           AWS_REGION: 'us-west-2'
           AWS_ACCESS_KEY_ID: ${{ secrets.FAMILIARIZE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
+
+  retry-build:
+    name: Retry Build if Previous Fails or Times Out
+    needs: build
+    runs-on: ubuntu-latest
+    if: failure()
+    timeout-minutes: 60
+
+    steps:
+      - name: Retry Notice
+        run: echo "Retrying the build and deploy job due to failure or timeout..."
+      - name: Trigger Re-run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: context.workflow,
+              ref: 'main'
+            })
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
