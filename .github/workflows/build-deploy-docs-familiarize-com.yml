@@ -33,8 +33,17 @@ jobs:
         with:
           hugo-version: '0.111.2'
 
-      - name: Build
-        run: hugo --minify
+      - name: Build with keep-alive every 15 minutes
+        run: |
+          ( while true; do
+            echo "[$(date)] Build is still running..."
+            sleep 900  # 15 minutes
+            done ) &
+          KEEPALIVE_PID=$!
+          
+          hugo --minify
+          
+          kill $KEEPALIVE_PID
 
       - name: Deploy docs.familiarize.com to S3 (with retries)
         run: |
