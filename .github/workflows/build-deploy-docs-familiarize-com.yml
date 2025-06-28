@@ -41,7 +41,7 @@ jobs:
             done ) &
           KEEPALIVE_PID=$!
           
-          hugo --minify
+          hugo
           
           kill $KEEPALIVE_PID
 
