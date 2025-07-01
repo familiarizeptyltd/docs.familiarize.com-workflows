@@ -31,7 +31,7 @@ jobs:
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
         with:
-          hugo-version: 'latest'  # use the most recent Hugo & avoid manual updates
+          hugo-version: '0.133.8'  # 'latest' use the most recent Hugo & avoid manual updates
           # hugo-version: '0.111.2'  # legacy version—retained for reference but commented out
 
       - name: Build with keep-alive every 15 minutes
