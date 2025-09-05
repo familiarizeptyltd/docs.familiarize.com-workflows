@@ -7,7 +7,7 @@ on:
       - 'data/**'
   pull_request:
     branches: [ main1 ]
-  workflow_run:
+  #workflow_run:
     workflows: ["Translate docs.familiarize.com"]
     types: [completed]
   workflow_dispatch:
