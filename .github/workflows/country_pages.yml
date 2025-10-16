@@ -1,0 +1,58 @@
+name: Country pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      X:        
+        required: true
+      COUNTRY:        
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target docs repo into ./hugo_content
+        uses: actions/checkout@v5
+        with:
+          repository: familiarizeptyltd/docs.familiarize.com
+          path: hugo_content
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install openai-agents-python pyyaml
+
+      - name: Run private agent script (reads private prompt file)
+        working-directory: hugo_content
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python scripts/country_pages_agent.py \
+            --x "${{ github.event.inputs.X }}" \
+            --country "${{ github.event.inputs.COUNTRY }}" \
+            --root "." \
+            --prompt-file "prompts/country_pages_prompt.txt"
+
+      - name: Commit & push to main (direct)
+        working-directory: hugo_content
+        run: |
+          git config user.name "ci-agent"
+          git config user.email "ci-agent@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Added ${{ github.event.inputs.X }} pages for ${{ github.event.inputs.COUNTRY }}"
+          git push origin HEAD:main
