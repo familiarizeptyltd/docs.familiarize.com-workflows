@@ -9,6 +9,7 @@ jobs:
       # Configuration parameters
       WEBSITE: docs.familiarize.com
       HUGO_THEME: geekdocs
+      LLM: chatgpt
       # Relative paths to Hugo & websiteManager repos paths on the runner
       HUGO_CONTENT_PATH: hugo_content/content/en
       HUGO_I18N_PATH: hugo_content/themes/geekdoc/i18n/en.yaml
