@@ -38,7 +38,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          python scripts/country_pages_agent.py \
+          python scripts/country_pages_agents.py \
             --x "${{ github.event.inputs.X }}" \
             --country "${{ github.event.inputs.COUNTRY }}" \
             --root "." \
