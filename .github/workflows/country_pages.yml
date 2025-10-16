@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install openai-agents-python pyyaml
+          pip install openai-agents pyyaml
 
       - name: Run private agent script (reads private prompt file)
         working-directory: hugo_content
