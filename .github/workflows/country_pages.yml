@@ -43,6 +43,7 @@ jobs:
             --country "${{ github.event.inputs.COUNTRY }}" \
             --root "." \
             --prompt-file "prompts/country_pages_prompt.txt"
+            --filename-style "title"    # <- or "kebab"
 
       - name: Commit & push to main (direct)
         working-directory: hugo_content
