@@ -44,7 +44,7 @@ jobs:
             --root "." \
             --prompt-file "prompts/country_pages_prompt.txt"
             --filename-style "title"    # <- or "kebab"
-            --existing-titles-mode cap # cap|csv
+            --existing-titles-mode "cap" # cap|csv
             --existing-titles-cap 2500
             --existing-titles-csv ".ci/existing_titles.csv"
 
