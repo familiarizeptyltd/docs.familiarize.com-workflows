@@ -1,106 +1,109 @@
-name: Build and deploy docs.familiarize.com
+name: Build & Deploy docs.familiarize.com
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'data/**'
-  pull_request:
-    branches: [ main1 ]
+  workflow_dispatch:
   workflow_run:
     workflows: ["Translate docs.familiarize.com"]
     types: [completed]
-  workflow_dispatch:
 
 jobs:
   build:
-    name: Build and Deploy Job
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # ⏱️ Cancel after 120 minutes if not complete
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+
+      - name: Checkout docs.familiarize.com (private)
+        uses: actions/checkout@v4
         with:
           repository: familiarizeptyltd/docs.familiarize.com
+          path: docs_repo
           token: ${{ secrets.REPO_TOKEN }}
-          submodules: true
           fetch-depth: 0
+          submodules: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 👇 Generate only static/llms.txt
+      - name: Generate llms.txt
+        working-directory: docs_repo
+        env:
+          BASE_URL: "https://docs.familiarize.com"   # optional; remove to use relative links
+          MAX_LINKS: "5000"                           # optional cap
+          VALIDATE_HTTP: "0"                         # 0|1  (default 0 = off) - 404 checking
+          VALIDATE_MAX: "800"                        # cap validated URLs
+          VALIDATE_TIMEOUT: "3"                      # seconds per request
+          ALLOW_EXTERNAL: "0"                        # skip other domains
+          STRICT_URL: "0"                            # respect front-matter "url:"
+        run: |
+          python3 scripts/generate_llms.py
+
+      # Commit only llms.txt if changed
+      - name: Commit llms.txt (if changed)
+        working-directory: docs_repo
+        shell: bash
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [[ -n "$(git status --porcelain static/llms.txt)" ]]; then
+            git add static/llms.txt
+            git commit -m "Updated llms.txt [CI]"
+            git push origin HEAD:main
+            echo "Pushed static/llms.txt to private repo."
+          else
+            echo "No changes in static/llms.txt; skipping commit."
+          fi
+
+      # Zip only llms.txt for your manual checks
+      - name: Archive llms.txt (zip)
+        working-directory: docs_repo
+        shell: bash
+        run: |
+          set -e
+          ZIP_NAME="llms-${GITHUB_RUN_ID}.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          zip -q "$ZIP_NAME" static/llms.txt
+          echo "Created $ZIP_NAME"
+
+      - name: Upload artifact (llms.txt)
+        uses: actions/upload-artifact@v4
+        with:
+          name: llms-outputs-${{ github.run_id }}
+          path: docs_repo/${{ env.ZIP_NAME }}
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
         with:
-          hugo-version: '0.123.8'  # 'latest' use the most recent Hugo & avoid manual updates
-          # hugo-version: '0.111.2'  # legacy version—retained for reference but commented out
+          hugo-version: "0.123.8"
 
-      - name: Build with keep-alive every 15 minutes
+      - name: Build Hugo (keep-alive)
+        working-directory: docs_repo
+        shell: bash
         run: |
-          ( while true; do
-            echo "[$(date)] Build is still running..."
-            sleep 900  # 15 minutes
-            done ) &
+          ( while true; do echo "[$(date)] build alive"; sleep 900; done ) &
           KEEPALIVE_PID=$!
-          
           hugo
-          
           kill $KEEPALIVE_PID
 
-      - name: Deploy docs.familiarize.com to S3 (with retries)
-        run: |
-          MAX_RETRIES=5
-          COUNT=0
-
-          until [ $COUNT -ge $MAX_RETRIES ]
-          do
-            echo "Attempt #$((COUNT+1)) to deploy via hugo..."
-            hugo deploy --target "Production" --maxDeletes -1 --force && break
-
-            COUNT=$((COUNT+1))
-            echo "Deploy failed on attempt #$COUNT."
-
-            if [ $COUNT -lt $MAX_RETRIES ]; then
-              echo "Will retry in 15 seconds..."
-              sleep 15
-            fi
-          done
-
-          if [ $COUNT -ge $MAX_RETRIES ]; then
-            echo "Deployment failed after $MAX_RETRIES attempts, exiting."
-            exit 1
-          fi
+      - name: Deploy (hugo deploy)
+        working-directory: docs_repo
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.FAMILIARIZE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
+        run: |
+          hugo deploy --maxDeletes -1
 
       - name: Invalidate CloudFront Cache
         uses: chetan/invalidate-cloudfront-action@master
         env:
           DISTRIBUTION: ${{ secrets.AWS_DOCS_FAMILIARIZE_DISTRIBUTION_ID }}
           PATHS: /*
-          AWS_REGION: 'us-west-2'
-          AWS_ACCESS_KEY_ID: ${{ secrets.FAMILIARIZE_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
-
-  retry-build:
-    name: Retry Build if Previous Fails or Times Out
-    needs: build
-    runs-on: ubuntu-latest
-    if: failure()
-    timeout-minutes: 60
-
-    steps:
-      - name: Retry Notice
-        run: echo "Retrying the build and deploy job due to failure or timeout..."
-      - name: Trigger Re-run
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: context.workflow,
-              ref: 'main'
-            })
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
