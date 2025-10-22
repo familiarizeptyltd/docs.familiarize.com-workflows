@@ -8,8 +8,10 @@ on:
 
 jobs:
   build:
+    name: Build and Deploy Job
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout workflows repo
@@ -107,3 +109,7 @@ jobs:
         env:
           DISTRIBUTION: ${{ secrets.AWS_DOCS_FAMILIARIZE_DISTRIBUTION_ID }}
           PATHS: /*
+          PATHS: /*
+          AWS_REGION: 'us-west-2'
+          AWS_ACCESS_KEY_ID: ${{ secrets.FAMILIARIZE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
