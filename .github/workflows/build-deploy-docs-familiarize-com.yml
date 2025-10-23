@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 👇 Generate only static/llms.txt
+      # Generate only static/llms.txt
       - name: Generate llms.txt
         working-directory: docs_repo
         env:
@@ -61,26 +61,7 @@ jobs:
             echo "Pushed static/llms.txt to private repo."
           else
             echo "No changes in static/llms.txt; skipping commit."
-          fi
-
-      # Zip only llms.txt for your manual checks
-      - name: Archive llms.txt (zip)
-        working-directory: docs_repo
-        shell: bash
-        run: |
-          set -e
-          ZIP_NAME="llms-${GITHUB_RUN_ID}.zip"
-          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
-          zip -q "$ZIP_NAME" static/llms.txt
-          echo "Created $ZIP_NAME"
-
-      - name: Upload artifact (llms.txt)
-        uses: actions/upload-artifact@v4
-        with:
-          name: llms-outputs-${{ github.run_id }}
-          path: docs_repo/${{ env.ZIP_NAME }}
-          if-no-files-found: error
-          retention-days: 14
+          fi      
 
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
