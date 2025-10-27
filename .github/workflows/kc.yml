@@ -1,5 +1,4 @@
-name: KC
-
+name: KiloCode
 on:
   workflow_dispatch:
     inputs:
