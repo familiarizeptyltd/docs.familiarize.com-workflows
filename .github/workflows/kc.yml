@@ -9,7 +9,7 @@ on:
         default: "main"
         required: true
       prompt_file:
-        description: "Prompt file in repo (e.g., prompts/kilo-task.md)"
+        description: "Prompt file in repo (e.g., prompts/test_prompt.md)"
         type: string
         default: "prompts/test_prompt.md"
         required: true
@@ -17,24 +17,24 @@ on:
         description: "LLM provider"
         type: choice
         options:
-          - self_hosted_openai
-          - xai_direct
-          - openrouter
-          - kilocode_hosted
+          - kilocode_hosted        # uses provider: kilocode (token+model)
+          - self_hosted_openai     # uses provider: openai-compatible
+          - xai_direct             # uses provider: openai-compatible
+          - openrouter             # uses provider: openai-compatible
         default: kilocode_hosted
         required: true
       model:
-        description: "Model name (e.g., gpt-oss, grok-code-fast-1, xai/grok-code-fast-1)"
+        description: "Model id for the provider (e.g., xai/grok-code-fast-1, anthropic/claude-sonnet-4.5)"
         type: string
-        default: "grok-code-fast-1"
+        default: "xai/grok-code-fast-1"
         required: true
       mode:
-        description: "Kilo mode (architect|code|debug|ask|orchestrator)"
+        description: "Kilocode mode (architect|code|debug|ask|orchestrator)"
         type: string
         default: "orchestrator"
         required: true
       timeout_sec:
-        description: "Max seconds for Kilo run (string)"
+        description: "Max seconds for Kilo run"
         type: string
         default: "1200"
         required: true
@@ -62,7 +62,7 @@ jobs:
       - name: Checkout workflow repo
         uses: actions/checkout@v4
 
-      - name: Checkout docs.familiarize.com (private)
+      - name: Checkout target repo (private)
         uses: actions/checkout@v4
         with:
           repository: ${{ env.TARGET_REPO }}
@@ -76,130 +76,113 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install Kilo Code CLI
+      - name: Install Kilocode CLI
         run: npm i -g @kilocode/cli
 
-      # ---- Provider wiring (OpenAI-compatible) ----
-      - name: Configure provider environment
+      # Configure CLI provider NON-INTERACTIVELY for the chosen option
+      - name: Write Kilocode CLI config (provider + auto-approvals)
         shell: bash
         run: |
           set -euo pipefail
-          case "${PROVIDER}" in
-            self_hosted_openai)
-              echo "OPENAI_BASE_URL=${{ secrets.LLM_BASE_URL }}" >> $GITHUB_ENV
-              echo "OPENAI_API_KEY=${{ secrets.LLM_API_KEY }}"   >> $GITHUB_ENV
-              echo "KILO_MODEL=${MODEL}"                         >> $GITHUB_ENV
-              ;;
-            xai_direct)
-              echo "OPENAI_BASE_URL=https://api.x.ai"           >> $GITHUB_ENV
-              echo "OPENAI_API_KEY=${{ secrets.XAI_API_KEY }}"  >> $GITHUB_ENV
-              echo "KILO_MODEL=${MODEL}"                         >> $GITHUB_ENV
-              ;;
-            openrouter)
-              echo "OPENAI_BASE_URL=https://openrouter.ai/api/v1"        >> $GITHUB_ENV
-              echo "OPENAI_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"    >> $GITHUB_ENV
-              echo "KILO_MODEL=${MODEL}"                                  >> $GITHUB_ENV
-              ;;
-            kilocode_hosted)
-              echo "OPENAI_BASE_URL=https://kilocode.ai/api/openrouter"  >> $GITHUB_ENV
-              echo "OPENAI_API_KEY=${{ secrets.KILOCODE_API_KEY }}"      >> $GITHUB_ENV
-              echo "KILO_MODEL=${MODEL}"                                  >> $GITHUB_ENV
-              ;;
-            *)
-              echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
-          esac
+          mkdir -p ~/.kilocode/cli
 
-      - name: Configure Kilo auto-approvals (safe allowlist)
-        shell: bash
-        run: |
-          mkdir -p ~/.kilocode
-          cat > ~/.kilocode/config.json <<'JSON'
-          {
-            "autoApproval": {
-              "enabled": true,
-              "read":  { "enabled": true, "outside": false },
-              "write": { "enabled": true, "outside": false, "protected": false },
-              "execute": {
-                "enabled": true,
-                "allowed": ["git", "node", "npm", "pnpm"],
-                "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+          # Build provider block depending on selection
+          if [ "${PROVIDER}" = "kilocode_hosted" ]; then
+            # --- OFFICIAL KILOCODE PROVIDER (token + model) ---
+            test -n "${{ secrets.KILOCODE_TOKEN }}" || { echo "::error::Missing secrets.KILOCODE_TOKEN"; exit 1; }
+            PROVIDER_JSON=$(cat <<JSON
+            {
+              "version": 1,
+              "currentProvider": "kilocode",
+              "providers": {
+                "kilocode": {
+                  "type": "kilocode",
+                  "kilocodeToken": "${{ secrets.KILOCODE_TOKEN }}",
+                  "kilocodeModel": "${MODEL}"
+                }
               },
-              "browser": { "enabled": false },
-              "mcp": { "enabled": true },
-              "mode": { "enabled": true },
-              "subtasks": { "enabled": true },
-              "question": { "enabled": false, "timeout": 60 },
-              "retry": { "enabled": true, "delay": 10 },
-              "todo": { "enabled": true }
-            }
-          }
-          JSON
-
-      # Seed global provider preference to suppress onboarding
-      - name: Seed Kilocode provider profile (global)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.kilocode
-          cat > ~/.kilocode/settings.json <<'JSON'
-          {
-            "currentProvider": "openai-compatible",
-            "onboardingComplete": true
-          }
-          JSON
-
-          cat > ~/.kilocode/providers.json <<JSON
-          {
-            "providers": {
-              "openai-compatible": {
-                "type": "openai-compatible",
-                "baseUrl": "${OPENAI_BASE_URL}",
-                "apiKeyEnv": "OPENAI_API_KEY",
-                "model": "${MODEL}"
+              "autoApproval": {
+                "enabled": true,
+                "read":  { "enabled": true, "outside": false },
+                "write": { "enabled": true, "outside": false, "protected": false },
+                "execute": {
+                  "enabled": true,
+                  "allowed": ["git", "node", "npm", "pnpm"],
+                  "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+                },
+                "browser": { "enabled": false },
+                "mcp": { "enabled": true },
+                "mode": { "enabled": true },
+                "subtasks": { "enabled": true },
+                "question": { "enabled": false, "timeout": 60 },
+                "retry": { "enabled": true, "delay": 10 },
+                "todo": { "enabled": true }
               }
             }
-          }
-          JSON
+            JSON
+            )
+          else
+            # --- OPENAI-COMPATIBLE PROVIDERS (baseUrl + key + model) ---
+            case "${PROVIDER}" in
+              self_hosted_openai)
+                OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
+                OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
+                ;;
+              xai_direct)
+                OPENAI_BASE_URL="https://api.x.ai"
+                OPENAI_API_KEY="${{ secrets.XAI_API_KEY }}"
+                ;;
+              openrouter)
+                OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+                OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
+                ;;
+              *) echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
+            esac
 
-      # Robust first-run guard: drive the provider picker via `expect` and choose "Other"
-      - name: Install expect & preselect provider (first-run guard)
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y expect
+            test -n "${OPENAI_API_KEY}" || { echo "::error::Missing API key secret for ${PROVIDER}"; exit 1; }
+            test -n "${OPENAI_BASE_URL}" || { echo "::error::Missing base URL for ${PROVIDER}"; exit 1; }
 
-          cat > /tmp/kilocode-seed.exp <<'EXP'
-          #!/usr/bin/expect -f
-          set timeout 20
-          # Run in a dummy folder to avoid touching the repo
-          spawn bash -lc {mkdir -p /tmp/kilo-ci && cd /tmp/kilo-ci && kilocode --mode ask --workspace .}
-          expect {
-            -re {Please select which provider} {
-              # The picker shows: [Kilo Code, zAI, Other]; choose Other (two downs + enter)
-              send "\x1b[B" ; send "\x1b[B" ; send "\r"
-              exp_continue
+            PROVIDER_JSON=$(cat <<JSON
+            {
+              "version": 1,
+              "currentProvider": "openai-compatible",
+              "providers": {
+                "openai-compatible": {
+                  "type": "openai-compatible",
+                  "baseUrl": "${OPENAI_BASE_URL}",
+                  "apiKeyEnv": "OPENAI_API_KEY",
+                  "model": "${MODEL}"
+                }
+              },
+              "autoApproval": {
+                "enabled": true,
+                "read":  { "enabled": true, "outside": false },
+                "write": { "enabled": true, "outside": false, "protected": false },
+                "execute": {
+                  "enabled": true,
+                  "allowed": ["git", "node", "npm", "pnpm"],
+                  "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+                },
+                "browser": { "enabled": false },
+                "mcp": { "enabled": true },
+                "mode": { "enabled": true },
+                "subtasks": { "enabled": true },
+                "question": { "enabled": false, "timeout": 60 },
+                "retry": { "enabled": true, "delay": 10 },
+                "todo": { "enabled": true }
+              }
             }
-            -re {Enter your .* base URL} {
-              send "$env(OPENAI_BASE_URL)\r"
-              exp_continue
-            }
-            -re {Enter your .* API key} {
-              send "$env(OPENAI_API_KEY)\r"
-              exp_continue
-            }
-            -re {Enter your model name} {
-              send "$env(MODEL)\r"
-              exp_continue
-            }
-            timeout { exit 0 }
-            eof { exit 0 }
-          }
-          EXP
-          chmod +x /tmp/kilocode-seed.exp
-          TERM=xterm /tmp/kilocode-seed.exp || true
+            JSON
+            )
 
-      - name: Mark repo as safe for Git (avoid dubious ownership warnings)
+            # Export OPENAI_* env for the run step
+            echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
+            echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> $GITHUB_ENV
+          fi
+
+          printf '%s\n' "${PROVIDER_JSON}" > ~/.kilocode/cli/config.json
+
+      - name: Mark repo as safe for Git
         working-directory: ${{ env.WORKDIR }}
         run: git config --global --add safe.directory "${PWD}"
 
@@ -215,7 +198,7 @@ jobs:
             git checkout "${BRANCH}"
             git pull --ff-only origin "${BRANCH}"
           else
-            git checkout -B "${BRANCH}" origin/main
+            git checkout -B "${BRANCH}" origin/main || git checkout -B "${BRANCH}"
           fi
 
       - name: Verify prompt file exists
@@ -223,44 +206,29 @@ jobs:
         run: |
           test -f "${PROMPT_FILE}" || { echo "::error::Prompt not found: ${PROMPT_FILE}"; exit 1; }
 
-      - name: Write Kilo workspace profile (deterministic provider/model)
-        working-directory: ${{ env.WORKDIR }}
-        shell: bash
-        run: |
-          mkdir -p .kilocode
-          cat > .kilocode/profile.ci.json <<JSON
-          {
-            "provider": "openai-compatible",
-            "baseUrl": "${OPENAI_BASE_URL}",
-            "apiKeyEnv": "OPENAI_API_KEY",
-            "model": "${MODEL}"
-          }
-          JSON
-
       - name: Set non-interactive env flags
         run: |
           echo "CI=true" >> $GITHUB_ENV
           echo "KILOCODE_CI=true" >> $GITHUB_ENV
           echo "NO_COLOR=1" >> $GITHUB_ENV
+          echo "TERM=xterm" >> $GITHUB_ENV
 
-      - name: Run Kilo Code autonomously with prompt
+      - name: Run Kilocode autonomously with prompt
         working-directory: ${{ env.WORKDIR }}
-        env:
-          MODEL: ${{ env.KILO_MODEL }}
         shell: bash
         run: |
           set -euo pipefail
-          echo "Provider=${PROVIDER}  BaseURL=${OPENAI_BASE_URL}  Model=${MODEL}  Mode=${MODE}  Timeout=${KILO_TIMEOUT}"
+          echo "Provider=${PROVIDER}  Model=${MODEL}  Mode=${MODE}  Timeout=${KILO_TIMEOUT}"
+          # Small hint to the agent: use the selected mode (auto-approval already allows switching)
           {
-            echo "[profile ci] Use provider=openai-compatible with baseUrl=${OPENAI_BASE_URL} and model=${MODEL}.";
             echo "[mode] Use ${MODE}.";
             cat "${PROMPT_FILE}";
           } | kilocode --auto --timeout "${KILO_TIMEOUT}" --workspace "${PWD}" --mode "${MODE}" || rc=$?
 
           if [ "${rc:-0}" = "124" ]; then
-            echo "::error::Kilo timed out after ${KILO_TIMEOUT}s"; exit 124
+            echo "::error::Kilocode timed out after ${KILO_TIMEOUT}s"; exit 124
           elif [ -n "${rc:-}" ] && [ "${rc}" != "0" ]; then
-            echo "::error::Kilo exited with error code ${rc}"; exit "${rc}"
+            echo "::error::Kilocode exited with error code ${rc}"; exit "${rc}"
           fi
 
       - name: Commit & push changes (if any)
@@ -269,9 +237,9 @@ jobs:
           set -euo pipefail
           if ! git diff --no-ext-diff --quiet; then
             git add -A
-            git commit -m "Kilo Code (auto): ${PROMPT_FILE} via ${PROVIDER}:${MODEL} [mode=${MODE}]"
+            git commit -m "Kilocode (auto): ${PROMPT_FILE} via ${PROVIDER}:${MODEL} [mode=${MODE}]"
             git push origin HEAD:"${BRANCH}"
             echo "Pushed updates to ${BRANCH}."
           else
-            echo "No changes produced by Kilo Code."
+            echo "No changes produced by Kilocode."
           fi
