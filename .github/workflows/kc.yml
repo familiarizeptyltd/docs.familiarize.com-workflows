@@ -86,26 +86,21 @@ jobs:
           set -euo pipefail
           case "${PROVIDER}" in
             self_hosted_openai)
-              # REQUIRED: secrets LLM_BASE_URL (no trailing slash), LLM_API_KEY
               echo "OPENAI_BASE_URL=${{ secrets.LLM_BASE_URL }}" >> $GITHUB_ENV
               echo "OPENAI_API_KEY=${{ secrets.LLM_API_KEY }}"   >> $GITHUB_ENV
               echo "KILO_MODEL=${MODEL}"                         >> $GITHUB_ENV
               ;;
             xai_direct)
-              # xAI is OpenAI-compatible at https://api.x.ai ; REQUIRED: XAI_API_KEY
               echo "OPENAI_BASE_URL=https://api.x.ai"           >> $GITHUB_ENV
               echo "OPENAI_API_KEY=${{ secrets.XAI_API_KEY }}"  >> $GITHUB_ENV
               echo "KILO_MODEL=${MODEL}"                         >> $GITHUB_ENV
               ;;
             openrouter)
-              # OpenRouter OpenAI-compatible; REQUIRED: OPENROUTER_API_KEY
               echo "OPENAI_BASE_URL=https://openrouter.ai/api/v1"        >> $GITHUB_ENV
               echo "OPENAI_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"    >> $GITHUB_ENV
               echo "KILO_MODEL=${MODEL}"                                  >> $GITHUB_ENV
               ;;
             kilocode_hosted)
-              # Kilo hosted OpenAI-compatible proxy (community-standard route)
-              # REQUIRED: KILOCODE_API_KEY
               echo "OPENAI_BASE_URL=https://kilocode.ai/api/openrouter"  >> $GITHUB_ENV
               echo "OPENAI_API_KEY=${{ secrets.KILOCODE_API_KEY }}"      >> $GITHUB_ENV
               echo "KILO_MODEL=${MODEL}"                                  >> $GITHUB_ENV
@@ -166,12 +161,37 @@ jobs:
           }
           JSON
 
-      # NEW: Explicitly mark the job as non-interactive
-      - name: Set non-interactive env flags
+      # NEW: Harden against interactive prompts by auto-selecting provider using `expect`
+      - name: Install expect & preselect provider (first-run guard)
+        shell: bash
         run: |
-          echo "CI=true" >> $GITHUB_ENV
-          echo "KILOCODE_CI=true" >> $GITHUB_ENV
-          echo "NO_COLOR=1" >> $GITHUB_ENV
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y expect
+          cat > /tmp/kilocode-seed.exp <<'EXP'
+          #!/usr/bin/expect -f
+          set timeout 10
+          # Minimal run that triggers provider selection if not seeded
+          spawn kilocode --mode ask --workspace .
+          expect {
+            -re {Please select which provider} {
+              # Select first option (Kilo Code) by pressing Enter
+              send "\r"
+              exp_continue
+            }
+            -re {Enter your .*API key} {
+              # Provide the API key from ENV
+              set apikey $env(OPENAI_API_KEY)
+              send "$apikey\r"
+              exp_continue
+            }
+            timeout { exit 0 }
+            eof { exit 0 }
+          }
+          EXP
+          chmod +x /tmp/kilocode-seed.exp
+          cd "${GITHUB_WORKSPACE}/${WORKDIR}" || exit 1
+          TERM=xterm /tmp/kilocode-seed.exp || true
 
       - name: Mark repo as safe for Git (avoid dubious ownership warnings)
         working-directory: ${{ env.WORKDIR }}
@@ -210,6 +230,12 @@ jobs:
             "model": "${MODEL}"
           }
           JSON
+
+      - name: Set non-interactive env flags
+        run: |
+          echo "CI=true" >> $GITHUB_ENV
+          echo "KILOCODE_CI=true" >> $GITHUB_ENV
+          echo "NO_COLOR=1" >> $GITHUB_ENV
 
       - name: Run Kilo Code autonomously with prompt
         working-directory: ${{ env.WORKDIR }}
