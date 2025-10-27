@@ -1,4 +1,4 @@
-name: Kilo Code – Multi-LLM Prompted Update
+name: KC
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
       prompt_file:
         description: "Prompt file in repo (e.g., prompts/kilo-task.md)"
         type: string
-        default: "prompts/kilo-task.md"
+        default: "prompts/test_prompt.md"
         required: true
       provider:
         description: "LLM provider"
@@ -21,12 +21,12 @@ on:
           - xai_direct
           - openrouter
           - kilocode_hosted
-        default: self_hosted_openai
+        default: kilocode_hosted
         required: true
       model:
         description: "Model name (e.g., gpt-oss, grok-code-fast-1, xai/grok-code-fast-1)"
         type: string
-        default: "gpt-oss"
+        default: "grok-code-fast-1"
         required: true
       mode:
         description: "Kilo mode (architect|code|debug|ask|orchestrator)"
@@ -140,6 +140,39 @@ jobs:
           }
           JSON
 
+      # NEW: Seed a global provider profile to avoid first-run interactive picker
+      - name: Seed Kilocode provider profile (global)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.kilocode
+          cat > ~/.kilocode/settings.json <<'JSON'
+          {
+            "currentProvider": "openai-compatible",
+            "onboardingComplete": true
+          }
+          JSON
+
+          cat > ~/.kilocode/providers.json <<JSON
+          {
+            "providers": {
+              "openai-compatible": {
+                "type": "openai-compatible",
+                "baseUrl": "${OPENAI_BASE_URL}",
+                "apiKeyEnv": "OPENAI_API_KEY",
+                "model": "${MODEL}"
+              }
+            }
+          }
+          JSON
+
+      # NEW: Explicitly mark the job as non-interactive
+      - name: Set non-interactive env flags
+        run: |
+          echo "CI=true" >> $GITHUB_ENV
+          echo "KILOCODE_CI=true" >> $GITHUB_ENV
+          echo "NO_COLOR=1" >> $GITHUB_ENV
+
       - name: Mark repo as safe for Git (avoid dubious ownership warnings)
         working-directory: ${{ env.WORKDIR }}
         run: git config --global --add safe.directory "${PWD}"
@@ -182,7 +215,6 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         env:
           MODEL: ${{ env.KILO_MODEL }}
-          CI: "true"
         shell: bash
         run: |
           set -euo pipefail
