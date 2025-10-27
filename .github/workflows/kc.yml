@@ -1,4 +1,4 @@
-name: KC
+name: KC Workflow
 
 on:
   workflow_dispatch:
