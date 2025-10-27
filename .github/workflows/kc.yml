@@ -1,0 +1,217 @@
+name: KC
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to run on (created if missing)"
+        type: string
+        default: "main"
+        required: true
+      prompt_file:
+        description: "Prompt file in repo (e.g., prompts/kilo-task.md)"
+        type: string
+        default: "prompts/test_prompt.md"
+        required: true
+      provider:
+        description: "LLM provider"
+        type: choice
+        options:
+          - self_hosted_openai
+          - xai_direct
+          - openrouter
+          - kilocode_hosted
+        default: self_hosted_openai
+        required: true
+      model:
+        description: "Model name (e.g., gpt-oss, grok-code-fast-1, xai/grok-code-fast-1)"
+        type: string
+        default: "gpt-oss"
+        required: true
+      mode:
+        description: "Kilo mode (architect|code|debug|ask|orchestrator)"
+        type: string
+        default: "architect"
+        required: true
+      timeout_sec:
+        description: "Max seconds for Kilo run"
+        type: string
+        default: "1200"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  kilo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      TARGET_REPO: familiarizeptyltd/docs.familiarize.com
+      WORKDIR: docs_repo
+      BRANCH: ${{ inputs.branch }}
+      PROMPT_FILE: ${{ inputs.prompt_file }}
+      KILO_TIMEOUT: ${{ inputs.timeout_sec }}
+      PROVIDER: ${{ inputs.provider }}
+      MODEL: ${{ inputs.model }}
+      MODE: ${{ inputs.mode }}
+
+    steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
+      - name: Checkout docs.familiarize.com (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPO }}
+          path: ${{ env.WORKDIR }}
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0
+          submodules: true
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Kilo Code CLI
+        run: npm i -g @kilocode/cli
+
+      # ---- Provider wiring (OpenAI-compatible pattern) ----
+      - name: Configure provider environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${PROVIDER}" in
+            self_hosted_openai)
+              # REQUIRED: secrets LLM_BASE_URL (no trailing slash), LLM_API_KEY
+              echo "OPENAI_BASE_URL=${{ secrets.LLM_BASE_URL }}" >> $GITHUB_ENV
+              echo "OPENAI_API_KEY=${{ secrets.LLM_API_KEY }}"   >> $GITHUB_ENV
+              echo "KILO_MODEL=${MODEL}"                         >> $GITHUB_ENV
+              ;;
+            xai_direct)
+              # xAI is OpenAI-compatible at https://api.x.ai ; REQUIRED: XAI_API_KEY
+              echo "OPENAI_BASE_URL=https://api.x.ai"           >> $GITHUB_ENV
+              echo "OPENAI_API_KEY=${{ secrets.XAI_API_KEY }}"  >> $GITHUB_ENV
+              echo "KILO_MODEL=${MODEL}"                         >> $GITHUB_ENV
+              ;;
+            openrouter)
+              # OpenRouter OpenAI-compatible; REQUIRED: OPENROUTER_API_KEY
+              echo "OPENAI_BASE_URL=https://openrouter.ai/api/v1"        >> $GITHUB_ENV
+              echo "OPENAI_API_KEY=${{ secrets.OPENROUTER_API_KEY }}"    >> $GITHUB_ENV
+              echo "KILO_MODEL=${MODEL}"                                  >> $GITHUB_ENV
+              ;;
+            kilocode_hosted)
+              # Kilo hosted OpenAI-compatible proxy (community-standard route)
+              # REQUIRED: KILOCODE_API_KEY
+              echo "OPENAI_BASE_URL=https://kilocode.ai/api/openrouter"  >> $GITHUB_ENV
+              echo "OPENAI_API_KEY=${{ secrets.KILOCODE_API_KEY }}"      >> $GITHUB_ENV
+              echo "KILO_MODEL=${MODEL}"                                  >> $GITHUB_ENV
+              ;;
+            *)
+              echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
+          esac
+
+      - name: Configure Kilo auto-approvals (safe allowlist)
+        shell: bash
+        run: |
+          mkdir -p ~/.kilocode
+          cat > ~/.kilocode/config.json <<'JSON'
+          {
+            "autoApproval": {
+              "enabled": true,
+              "read":  { "enabled": true, "outside": false },
+              "write": { "enabled": true, "outside": false, "protected": false },
+              "execute": {
+                "enabled": true,
+                "allowed": ["git", "node", "npm", "pnpm"],
+                "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+              },
+              "browser": { "enabled": false },
+              "mcp": { "enabled": true },
+              "mode": { "enabled": true },
+              "subtasks": { "enabled": true },
+              "question": { "enabled": false, "timeout": 60 },
+              "retry": { "enabled": true, "delay": 10 },
+              "todo": { "enabled": true }
+            }
+          }
+          JSON
+
+      - name: Mark repo as safe for Git (avoid dubious ownership warnings)
+        working-directory: ${{ env.WORKDIR }}
+        run: git config --global --add safe.directory "${PWD}"
+
+      - name: Prepare branch
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin --prune
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            git checkout "${BRANCH}"
+            git pull --ff-only origin "${BRANCH}"
+          else
+            git checkout -B "${BRANCH}" origin/main
+          fi
+
+      - name: Verify prompt file exists
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          test -f "${PROMPT_FILE}" || { echo "::error::Prompt not found: ${PROMPT_FILE}"; exit 1; }
+
+      # Optional but helps determinism: drop a tiny workspace profile the agent can read.
+      - name: Write Kilo workspace profile (deterministic provider/model)
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: |
+          mkdir -p .kilocode
+          cat > .kilocode/profile.ci.json <<JSON
+          {
+            "provider": "openai-compatible",
+            "baseUrl": "${OPENAI_BASE_URL}",
+            "apiKeyEnv": "OPENAI_API_KEY",
+            "model": "${MODEL}"
+          }
+          JSON
+
+      - name: Run Kilo Code autonomously with prompt
+        working-directory: ${{ env.WORKDIR }}
+        env:
+          MODEL: ${{ env.KILO_MODEL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Provider=${PROVIDER}  BaseURL=${OPENAI_BASE_URL}  Model=${MODEL}  Mode=${MODE}"
+          # prepend short instructions so the agent picks the intended profile & mode in auto runs
+          {
+            echo "[profile ci] Use provider=openai-compatible with baseUrl=${OPENAI_BASE_URL} and model=${MODEL}."
+            echo "[mode] Use ${MODE}."
+            cat "${PROMPT_FILE}"
+          } | kilocode --auto --timeout "${KILO_TIMEOUT}" --workspace "${PWD}" --mode "${MODE}" || rc=$?
+
+          # Handle autonomous exit codes explicitly
+          if [ "${rc:-0}" = "124" ]; then
+            echo "::error::Kilo timed out after ${KILO_TIMEOUT}s"
+            exit 124
+          elif [ "${rc:-0}" != "0" ] && [ -n "${rc:-}" ]; then
+            echo "::error::Kilo exited with error code ${rc}"
+            exit "${rc}"
+          fi
+
+      - name: Commit & push changes (if any)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          set -euo pipefail
+          if ! git diff --no-ext-diff --quiet; then
+            git add -A
+            git commit -m "Kilo Code (auto): ${PROMPT_FILE} via ${PROVIDER}:${MODEL} [mode=${MODE}]"
+            git push origin HEAD:"${BRANCH}"
+            echo "Pushed updates to ${BRANCH}."
+          else
+            echo "No changes produced by Kilo Code."
+          fi
