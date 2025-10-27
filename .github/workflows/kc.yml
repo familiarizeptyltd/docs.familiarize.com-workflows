@@ -17,24 +17,24 @@ on:
         description: "LLM provider"
         type: choice
         options:
-          - kilocode_hosted        # uses provider: kilocode (token+model)
-          - self_hosted_openai     # uses provider: openai-compatible
-          - xai_direct             # uses provider: openai-compatible
-          - openrouter             # uses provider: openai-compatible
+          - kilocode_hosted        # provider: kilocode (token+model)
+          - self_hosted_openai     # provider: openai-compatible
+          - xai_direct             # provider: openai-compatible
+          - openrouter             # provider: openai-compatible
         default: kilocode_hosted
         required: true
       model:
-        description: "Model id for the provider (e.g., xai/grok-code-fast-1, anthropic/claude-sonnet-4.5)"
+        description: "Model id (e.g., xai/grok-code-fast-1, anthropic/claude-sonnet-4.5)"
         type: string
         default: "xai/grok-code-fast-1"
         required: true
       mode:
-        description: "Kilocode mode (architect|code|debug|ask|orchestrator)"
+        description: "Kilo mode (architect|code|debug|ask|orchestrator)"
         type: string
         default: "orchestrator"
         required: true
       timeout_sec:
-        description: "Max seconds for Kilo run"
+        description: "Max seconds for Kilocode run (string)"
         type: string
         default: "1200"
         required: true
@@ -79,50 +79,52 @@ jobs:
       - name: Install Kilocode CLI
         run: npm i -g @kilocode/cli
 
-      # Configure CLI provider NON-INTERACTIVELY for the chosen option
       - name: Write Kilocode CLI config (provider + auto-approvals)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ~/.kilocode/cli
 
-          # Build provider block depending on selection
           if [ "${PROVIDER}" = "kilocode_hosted" ]; then
-            # --- OFFICIAL KILOCODE PROVIDER (token + model) ---
-            test -n "${{ secrets.KILOCODE_API_KEY }}" || { echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1; }
-            PROVIDER_JSON=$(cat <<JSON
-            {
-              "version": 1,
-              "currentProvider": "kilocode",
-              "providers": {
-                "kilocode": {
-                  "type": "kilocode",
-                  "kilocodeToken": "${{ secrets.KILOCODE_API_KEY }}",
-                  "kilocodeModel": "${MODEL}"
-                }
-              },
-              "autoApproval": {
-                "enabled": true,
-                "read":  { "enabled": true, "outside": false },
-                "write": { "enabled": true, "outside": false, "protected": false },
-                "execute": {
-                  "enabled": true,
-                  "allowed": ["git", "node", "npm", "pnpm"],
-                  "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
-                },
-                "browser": { "enabled": false },
-                "mcp": { "enabled": true },
-                "mode": { "enabled": true },
-                "subtasks": { "enabled": true },
-                "question": { "enabled": false, "timeout": 60 },
-                "retry": { "enabled": true, "delay": 10 },
-                "todo": { "enabled": true }
-              }
-            }
-            JSON
-            )
+            # OFFICIAL KILOCODE PROVIDER (token + model)
+            : "${KILOCODE_TOKEN:=${{ secrets.KILOCODE_API_KEY }}}"
+            if [ -z "${KILOCODE_TOKEN}" ]; then
+              echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1
+            fi
+
+            cat > ~/.kilocode/cli/config.json <<EOF
+{
+  "version": 1,
+  "currentProvider": "kilocode",
+  "providers": {
+    "kilocode": {
+      "type": "kilocode",
+      "kilocodeToken": "${KILOCODE_TOKEN}",
+      "kilocodeModel": "${MODEL}"
+    }
+  },
+  "autoApproval": {
+    "enabled": true,
+    "read":  { "enabled": true, "outside": false },
+    "write": { "enabled": true, "outside": false, "protected": false },
+    "execute": {
+      "enabled": true,
+      "allowed": ["git", "node", "npm", "pnpm"],
+      "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+    },
+    "browser": { "enabled": false },
+    "mcp": { "enabled": true },
+    "mode": { "enabled": true },
+    "subtasks": { "enabled": true },
+    "question": { "enabled": false, "timeout": 60 },
+    "retry": { "enabled": true, "delay": 10 },
+    "todo": { "enabled": true }
+  }
+}
+EOF
+
           else
-            # --- OPENAI-COMPATIBLE PROVIDERS (baseUrl + key + model) ---
+            # OPENAI-COMPATIBLE PROVIDERS (baseUrl + key + model)
             case "${PROVIDER}" in
               self_hosted_openai)
                 OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
@@ -139,48 +141,45 @@ jobs:
               *) echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
             esac
 
-            test -n "${OPENAI_API_KEY}" || { echo "::error::Missing API key secret for ${PROVIDER}"; exit 1; }
-            test -n "${OPENAI_BASE_URL}" || { echo "::error::Missing base URL for ${PROVIDER}"; exit 1; }
+            if [ -z "${OPENAI_BASE_URL}" ]; then echo "::error::Missing base URL for ${PROVIDER}"; exit 1; fi
+            if [ -z "${OPENAI_API_KEY}" ]; then echo "::error::Missing API key secret for ${PROVIDER}"; exit 1; fi
 
-            PROVIDER_JSON=$(cat <<JSON
-            {
-              "version": 1,
-              "currentProvider": "openai-compatible",
-              "providers": {
-                "openai-compatible": {
-                  "type": "openai-compatible",
-                  "baseUrl": "${OPENAI_BASE_URL}",
-                  "apiKeyEnv": "OPENAI_API_KEY",
-                  "model": "${MODEL}"
-                }
-              },
-              "autoApproval": {
-                "enabled": true,
-                "read":  { "enabled": true, "outside": false },
-                "write": { "enabled": true, "outside": false, "protected": false },
-                "execute": {
-                  "enabled": true,
-                  "allowed": ["git", "node", "npm", "pnpm"],
-                  "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
-                },
-                "browser": { "enabled": false },
-                "mcp": { "enabled": true },
-                "mode": { "enabled": true },
-                "subtasks": { "enabled": true },
-                "question": { "enabled": false, "timeout": 60 },
-                "retry": { "enabled": true, "delay": 10 },
-                "todo": { "enabled": true }
-              }
-            }
-            JSON
-            )
-
-            # Export OPENAI_* env for the run step
+            # Export for run step (optional, but handy)
             echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
             echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> $GITHUB_ENV
-          fi
 
-          printf '%s\n' "${PROVIDER_JSON}" > ~/.kilocode/cli/config.json
+            cat > ~/.kilocode/cli/config.json <<EOF
+{
+  "version": 1,
+  "currentProvider": "openai-compatible",
+  "providers": {
+    "openai-compatible": {
+      "type": "openai-compatible",
+      "baseUrl": "${OPENAI_BASE_URL}",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "model": "${MODEL}"
+    }
+  },
+  "autoApproval": {
+    "enabled": true,
+    "read":  { "enabled": true, "outside": false },
+    "write": { "enabled": true, "outside": false, "protected": false },
+    "execute": {
+      "enabled": true,
+      "allowed": ["git", "node", "npm", "pnpm"],
+      "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+    },
+    "browser": { "enabled": false },
+    "mcp": { "enabled": true },
+    "mode": { "enabled": true },
+    "subtasks": { "enabled": true },
+    "question": { "enabled": false, "timeout": 60 },
+    "retry": { "enabled": true, "delay": 10 },
+    "todo": { "enabled": true }
+  }
+}
+EOF
+          fi
 
       - name: Mark repo as safe for Git
         working-directory: ${{ env.WORKDIR }}
@@ -219,7 +218,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "Provider=${PROVIDER}  Model=${MODEL}  Mode=${MODE}  Timeout=${KILO_TIMEOUT}"
-          # Small hint to the agent: use the selected mode (auto-approval already allows switching)
           {
             echo "[mode] Use ${MODE}.";
             cat "${PROMPT_FILE}";
