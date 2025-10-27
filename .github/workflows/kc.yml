@@ -34,7 +34,7 @@ on:
         default: "orchestrator"
         required: true
       timeout_sec:
-        description: "Max seconds for Kilo run"
+        description: "Max seconds for Kilo run (string)"
         type: string
         default: "1200"
         required: true
@@ -79,7 +79,7 @@ jobs:
       - name: Install Kilo Code CLI
         run: npm i -g @kilocode/cli
 
-      # ---- Provider wiring (OpenAI-compatible pattern) ----
+      # ---- Provider wiring (OpenAI-compatible) ----
       - name: Configure provider environment
         shell: bash
         run: |
@@ -135,7 +135,7 @@ jobs:
           }
           JSON
 
-      # NEW: Seed a global provider profile to avoid first-run interactive picker
+      # Seed global provider preference to suppress onboarding
       - name: Seed Kilocode provider profile (global)
         shell: bash
         run: |
@@ -161,28 +161,35 @@ jobs:
           }
           JSON
 
-      # NEW: Harden against interactive prompts by auto-selecting provider using `expect`
+      # Robust first-run guard: drive the provider picker via `expect` and choose "Other"
       - name: Install expect & preselect provider (first-run guard)
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y expect
+
           cat > /tmp/kilocode-seed.exp <<'EXP'
           #!/usr/bin/expect -f
-          set timeout 10
-          # Minimal run that triggers provider selection if not seeded
-          spawn kilocode --mode ask --workspace .
+          set timeout 20
+          # Run in a dummy folder to avoid touching the repo
+          spawn bash -lc {mkdir -p /tmp/kilo-ci && cd /tmp/kilo-ci && kilocode --mode ask --workspace .}
           expect {
             -re {Please select which provider} {
-              # Select first option (Kilo Code) by pressing Enter
-              send "\r"
+              # The picker shows: [Kilo Code, zAI, Other]; choose Other (two downs + enter)
+              send "\x1b[B" ; send "\x1b[B" ; send "\r"
               exp_continue
             }
-            -re {Enter your .*API key} {
-              # Provide the API key from ENV
-              set apikey $env(OPENAI_API_KEY)
-              send "$apikey\r"
+            -re {Enter your .* base URL} {
+              send "$env(OPENAI_BASE_URL)\r"
+              exp_continue
+            }
+            -re {Enter your .* API key} {
+              send "$env(OPENAI_API_KEY)\r"
+              exp_continue
+            }
+            -re {Enter your model name} {
+              send "$env(MODEL)\r"
               exp_continue
             }
             timeout { exit 0 }
@@ -190,7 +197,6 @@ jobs:
           }
           EXP
           chmod +x /tmp/kilocode-seed.exp
-          cd "${GITHUB_WORKSPACE}/${WORKDIR}" || exit 1
           TERM=xterm /tmp/kilocode-seed.exp || true
 
       - name: Mark repo as safe for Git (avoid dubious ownership warnings)
@@ -244,7 +250,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Provider=${PROVIDER}  BaseURL=${OPENAI_BASE_URL}  Model=${MODEL}  Mode=${MODE}"
+          echo "Provider=${PROVIDER}  BaseURL=${OPENAI_BASE_URL}  Model=${MODEL}  Mode=${MODE}  Timeout=${KILO_TIMEOUT}"
           {
             echo "[profile ci] Use provider=openai-compatible with baseUrl=${OPENAI_BASE_URL} and model=${MODEL}.";
             echo "[mode] Use ${MODE}.";
