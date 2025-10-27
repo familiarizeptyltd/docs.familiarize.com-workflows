@@ -1,4 +1,4 @@
-name: KC
+name: Kilo Code – Multi-LLM Prompted Update
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
       prompt_file:
         description: "Prompt file in repo (e.g., prompts/kilo-task.md)"
         type: string
-        default: "prompts/test_prompt.md"
+        default: "prompts/kilo-task.md"
         required: true
       provider:
         description: "LLM provider"
@@ -31,7 +31,7 @@ on:
       mode:
         description: "Kilo mode (architect|code|debug|ask|orchestrator)"
         type: string
-        default: "architect"
+        default: "orchestrator"
         required: true
       timeout_sec:
         description: "Max seconds for Kilo run"
@@ -164,7 +164,6 @@ jobs:
         run: |
           test -f "${PROMPT_FILE}" || { echo "::error::Prompt not found: ${PROMPT_FILE}"; exit 1; }
 
-      # Optional but helps determinism: drop a tiny workspace profile the agent can read.
       - name: Write Kilo workspace profile (deterministic provider/model)
         working-directory: ${{ env.WORKDIR }}
         shell: bash
@@ -183,24 +182,21 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         env:
           MODEL: ${{ env.KILO_MODEL }}
+          CI: "true"
         shell: bash
         run: |
           set -euo pipefail
           echo "Provider=${PROVIDER}  BaseURL=${OPENAI_BASE_URL}  Model=${MODEL}  Mode=${MODE}"
-          # prepend short instructions so the agent picks the intended profile & mode in auto runs
           {
-            echo "[profile ci] Use provider=openai-compatible with baseUrl=${OPENAI_BASE_URL} and model=${MODEL}."
-            echo "[mode] Use ${MODE}."
-            cat "${PROMPT_FILE}"
+            echo "[profile ci] Use provider=openai-compatible with baseUrl=${OPENAI_BASE_URL} and model=${MODEL}.";
+            echo "[mode] Use ${MODE}.";
+            cat "${PROMPT_FILE}";
           } | kilocode --auto --timeout "${KILO_TIMEOUT}" --workspace "${PWD}" --mode "${MODE}" || rc=$?
 
-          # Handle autonomous exit codes explicitly
           if [ "${rc:-0}" = "124" ]; then
-            echo "::error::Kilo timed out after ${KILO_TIMEOUT}s"
-            exit 124
-          elif [ "${rc:-0}" != "0" ] && [ -n "${rc:-}" ]; then
-            echo "::error::Kilo exited with error code ${rc}"
-            exit "${rc}"
+            echo "::error::Kilo timed out after ${KILO_TIMEOUT}s"; exit 124
+          elif [ -n "${rc:-}" ] && [ "${rc}" != "0" ]; then
+            echo "::error::Kilo exited with error code ${rc}"; exit "${rc}"
           fi
 
       - name: Commit & push changes (if any)
