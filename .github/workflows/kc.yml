@@ -1,4 +1,4 @@
-name: KiloCode
+name: KC
 
 on:
   workflow_dispatch:
