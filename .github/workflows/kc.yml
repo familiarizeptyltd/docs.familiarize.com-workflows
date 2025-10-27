@@ -1,4 +1,4 @@
-name: KC Workflow
+name: KC
 
 on:
   workflow_dispatch:
@@ -87,7 +87,7 @@ jobs:
 
           if [ "${PROVIDER}" = "kilocode_hosted" ]; then
             # OFFICIAL KILOCODE PROVIDER (token + model)
-            : "${KILOCODE_TOKEN:=${{ secrets.KILOCODE_API_KEY }}}"
+            KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
             if [ -z "${KILOCODE_TOKEN}" ]; then
               echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1
             fi
@@ -144,7 +144,6 @@ EOF
             if [ -z "${OPENAI_BASE_URL}" ]; then echo "::error::Missing base URL for ${PROVIDER}"; exit 1; fi
             if [ -z "${OPENAI_API_KEY}" ]; then echo "::error::Missing API key secret for ${PROVIDER}"; exit 1; fi
 
-            # Export for run step (optional, but handy)
             echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
             echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> $GITHUB_ENV
 
@@ -194,9 +193,11 @@ EOF
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin --prune
           if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            echo "Using existing branch: ${BRANCH}"
             git checkout "${BRANCH}"
             git pull --ff-only origin "${BRANCH}"
           else
+            echo "Creating branch from origin/main: ${BRANCH}"
             git checkout -B "${BRANCH}" origin/main || git checkout -B "${BRANCH}"
           fi
 
@@ -204,6 +205,13 @@ EOF
         working-directory: ${{ env.WORKDIR }}
         run: |
           test -f "${PROMPT_FILE}" || { echo "::error::Prompt not found: ${PROMPT_FILE}"; exit 1; }
+
+      - name: Ensure prompt is not empty
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          if [ ! -s "${PROMPT_FILE}" ]; then
+            echo "::error::Prompt file is empty: ${PROMPT_FILE}"; exit 1
+          fi
 
       - name: Set non-interactive env flags
         run: |
