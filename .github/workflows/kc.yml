@@ -89,7 +89,7 @@ jobs:
           # Build provider block depending on selection
           if [ "${PROVIDER}" = "kilocode_hosted" ]; then
             # --- OFFICIAL KILOCODE PROVIDER (token + model) ---
-            test -n "${{ secrets.KILOCODE_TOKEN }}" || { echo "::error::Missing secrets.KILOCODE_TOKEN"; exit 1; }
+            test -n "${{ secrets.KILOCODE_API_KEY }}" || { echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1; }
             PROVIDER_JSON=$(cat <<JSON
             {
               "version": 1,
@@ -97,7 +97,7 @@ jobs:
               "providers": {
                 "kilocode": {
                   "type": "kilocode",
-                  "kilocodeToken": "${{ secrets.KILOCODE_TOKEN }}",
+                  "kilocodeToken": "${{ secrets.KILOCODE_API_KEY }}",
                   "kilocodeModel": "${MODEL}"
                 }
               },
