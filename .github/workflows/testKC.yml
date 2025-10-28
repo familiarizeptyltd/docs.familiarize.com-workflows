@@ -84,7 +84,7 @@ jobs:
           # show where config is and that it’s valid JSON
           ls -la ~/.kilocode ~/.kilocode/cli
           sudo apt-get update -y && sudo apt-get install -y jq
-          jq '.providers[0].provider, .providers[0] | del(.kilocodeToken)' ~/.kilocode/cli/config.json
+          jq '.providers[0].provider, (.providers[0] | del(.kilocodeToken))' ~/.kilocode/cli/config.json
           # redact and print a preview
           awk '{gsub(/"kilocodeToken": *".*"/,"\"kilocodeToken\": \"***REDACTED***\""); print }' \
             ~/.kilocode/cli/config.json
