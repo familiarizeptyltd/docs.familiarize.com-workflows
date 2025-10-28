@@ -80,20 +80,47 @@ jobs:
       - name: Install Kilocode CLI
         run: npm i -g @kilocode/cli
 
+      - name: Assert HOME and XDG paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="${HOME:-/home/runner}"
+          export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+          echo "HOME=$HOME"
+          echo "XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+          node -e "console.log('Node os.homedir() =', require('os').homedir())"
+
       - name: Remove legacy Kilo config files
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf "${HOME}/.kilocode"
-          mkdir -p "${HOME}/.kilocode/cli"
+          rm -rf "$HOME/.kilocode" "$XDG_CONFIG_HOME/kilocode" || true
 
-      - name: Build Kilocode CLI config (providers array; write both paths)
+      - name: Create config roots (HOME + XDG)
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$HOME/.kilocode/cli" "$HOME/.kilocode"
+          mkdir -p "$XDG_CONFIG_HOME/kilocode/cli" "$XDG_CONFIG_HOME/kilocode"
 
-          # Map OpenAI-compatible envs or Kilocode token for the Node writer
+      - name: Build Kilocode CLI config (providers[]; write to 4 paths)
+        shell: bash
+        env:
+          PROVIDER: ${{ env.PROVIDER }}
+          MODEL: ${{ env.MODEL }}
+        run: |
+          set -euo pipefail
+
+          # Map provider envs
           case "${PROVIDER}" in
+            kilocode_hosted)
+              export KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
+              [ -n "${KILOCODE_TOKEN}" ] || { echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1; }
+              ;;
+            kilocode_openai_compat)
+              export OPENAI_BASE_URL="https://kilocode.ai/api/openrouter"
+              export OPENAI_API_KEY="${{ secrets.KILOCODE_API_KEY }}"
+              ;;
             self_hosted_openai)
               export OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
               export OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
@@ -106,23 +133,15 @@ jobs:
               export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
               export OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
               ;;
-            kilocode_openai_compat)
-              export OPENAI_BASE_URL="https://kilocode.ai/api/openrouter"
-              export OPENAI_API_KEY="${{ secrets.KILOCODE_API_KEY }}"
-              ;;
-            kilocode_hosted)
-              export KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
-              ;;
             *)
-              echo "::error::Unknown provider: ${PROVIDER}"; exit 1
-              ;;
+              echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
           esac
 
           write_cfg() {
             local path="$1"
             node -e '
               const fs = require("fs");
-              const path = process.argv[1];
+              const p = process.argv[1];
               const provider = process.env.PROVIDER;
               const model = process.env.MODEL;
 
@@ -145,7 +164,6 @@ jobs:
               };
 
               let cfg;
-
               if (provider === "kilocode_hosted") {
                 const token = process.env.KILOCODE_TOKEN;
                 if (!token) { console.error("::error::Missing secrets.KILOCODE_API_KEY"); process.exit(1); }
@@ -153,12 +171,7 @@ jobs:
                   version: 1,
                   currentProvider: "default",
                   providers: [
-                    {
-                      id: "default",
-                      provider: "kilocode",
-                      kilocodeToken: token,
-                      kilocodeModel: model
-                    }
+                    { id: "default", provider: "kilocode", kilocodeToken: token, kilocodeModel: model }
                   ],
                   autoApproval
                 };
@@ -171,60 +184,49 @@ jobs:
                   version: 1,
                   currentProvider: "default",
                   providers: [
-                    {
-                      id: "default",
-                      provider: "openai-compatible",
-                      baseUrl,
-                      apiKeyEnv: "OPENAI_API_KEY",
-                      model
-                    }
+                    { id: "default", provider: "openai-compatible", baseUrl, apiKeyEnv: "OPENAI_API_KEY", model }
                   ],
                   autoApproval
                 };
               }
 
-              if (!Array.isArray(cfg.providers)) {
-                console.error("::error::providers must be an array");
-                process.exit(1);
-              }
+              if (!Array.isArray(cfg.providers)) { console.error("::error::providers must be an array"); process.exit(1); }
               if (!cfg.providers.find(p => p.id === cfg.currentProvider)) {
-                console.error("::error::currentProvider must match a providers[i].id");
-                process.exit(1);
+                console.error("::error::currentProvider must match providers[i].id"); process.exit(1);
               }
 
-              fs.mkdirSync(require("path").dirname(path), { recursive: true });
-              fs.writeFileSync(path, JSON.stringify(cfg, null, 2));
-              console.log("Wrote config:", path);
+              fs.mkdirSync(require("path").dirname(p), { recursive: true });
+              fs.writeFileSync(p, JSON.stringify(cfg, null, 2));
+              console.log("Wrote config:", p);
             ' "$path"
           }
 
-          # Write to both locations the CLI might read
-          write_cfg "${HOME}/.kilocode/config.json"
-          write_cfg "${HOME}/.kilocode/cli/config.json"
+          # Write to all likely probe locations
+          write_cfg "$HOME/.kilocode/config.json"
+          write_cfg "$HOME/.kilocode/cli/config.json"
+          write_cfg "$XDG_CONFIG_HOME/kilocode/config.json"
+          write_cfg "$XDG_CONFIG_HOME/kilocode/cli/config.json"
 
-          # Show final configs without secrets
-          echo "::group::Kilocode config summary"
-          node -e '
-            const fs = require("fs");
-            for (const p of ["~/.kilocode/config.json","~/.kilocode/cli/config.json"]) {
-              const full = p.replace("~", process.env.HOME);
-              if (fs.existsSync(full)) {
-                const j = JSON.parse(fs.readFileSync(full,"utf8"));
-                const red = JSON.stringify(j, (k,v) =>
-                  (k.toLowerCase().includes("token")||k.toLowerCase().includes("key")) ? "***" : v, 2);
-                console.log(full + ":\n" + red + "\n");
-              }
-            }
-          '
-          echo "::endgroup::"
-
-          # Export OpenAI envs for run step (no-ops for kilocode_hosted)
+          # Export OPENAI_* for run step (no-ops for kilocode_hosted)
           if [ -n "${OPENAI_BASE_URL:-}" ]; then echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> "$GITHUB_ENV"; fi
           if [ -n "${OPENAI_API_KEY:-}"  ]; then echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> "$GITHUB_ENV"; fi
 
-        env:
-          PROVIDER: ${{ env.PROVIDER }}
-          MODEL: ${{ env.MODEL }}
+          # Show redacted configs
+          echo "::group::Kilocode config summary"
+          for p in \
+            "$HOME/.kilocode/config.json" \
+            "$HOME/.kilocode/cli/config.json" \
+            "$XDG_CONFIG_HOME/kilocode/config.json" \
+            "$XDG_CONFIG_HOME/kilocode/cli/config.json"
+          do
+            if [ -f "$p" ]; then
+              node -e 'const fs=require("fs"),p=process.argv[1];
+                const j=JSON.parse(fs.readFileSync(p,"utf8"));
+                const red=JSON.stringify(j,(k,v)=>/token|key/i.test(k)?"***":v,2);
+                console.log(p+"\\n"+red+"\\n");' "$p"
+            fi
+          done
+          echo "::endgroup::"
 
       - name: Mark repo as safe for Git
         working-directory: ${{ env.WORKDIR }}
@@ -249,6 +251,7 @@ jobs:
 
       - name: Verify prompt file exists
         working-directory: ${{ env.WORKDIR }}
+        shell: bash
         run: |
           set -euo pipefail
           test -f "${PROMPT_FILE}" || { echo "::error::Prompt not found: ${PROMPT_FILE}"; exit 1; }
@@ -257,6 +260,7 @@ jobs:
           fi
 
       - name: Set non-interactive env flags
+        shell: bash
         run: |
           set -euo pipefail
           echo "CI=true" >> "$GITHUB_ENV"
@@ -266,9 +270,11 @@ jobs:
           echo "DEBUG=kilocode:*" >> "$GITHUB_ENV"
           echo "KILOCODE_DEBUG=1" >> "$GITHUB_ENV"
 
-      - name: Kilocode preflight (ask mode, 60s)
+      - name: Kilocode preflight (ask mode, 60s, traced)
         working-directory: ${{ env.WORKDIR }}
         shell: bash
+        env:
+          NODE_OPTIONS: --trace-uncaught
         run: |
           set -euo pipefail
           echo "[mode] Use ask." | kilocode --auto --timeout "60" --workspace "${PWD}" --mode "ask" || rc=$?
