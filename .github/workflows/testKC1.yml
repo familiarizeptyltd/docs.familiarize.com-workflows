@@ -1,4 +1,4 @@
-name: Kilo Code Autonomous Fix
+name: testKC1
 
 on:
   pull_request:
@@ -23,7 +23,7 @@ jobs:
           # The agent works directly on the code, so you'll need to handle Git operations after it finishes.
           git config user.email "kilocode@users.noreply.github.com"
           git config user.name "Kilo Code"
-          echo "Write a short article on Price to Earnings Ratio and store in root of the repository." | kilocode --auto
+          echo "Write a short article in markdown file on Price to Earnings Ratio and store in root of the repository." | kilocode --auto
           
           # Stage, commit, and push the changes made by Kilo Code
           git add .
