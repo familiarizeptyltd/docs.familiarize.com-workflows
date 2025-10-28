@@ -79,33 +79,22 @@ jobs:
       - name: Install Kilocode CLI
         run: npm i -g @kilocode/cli
 
-      - name: Build Kilocode CLI config (provider + auto-approvals) without heredocs
+      - name: Build Kilocode CLI config (providers array; write both paths)
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p ~/.kilocode/cli
+          mkdir -p ~/.kilocode ~/.kilocode/cli
 
-          if [ "${PROVIDER}" = "kilocode_hosted" ]; then
-            # Official Kilocode provider: requires token + model
-            KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
-            if [ -z "${KILOCODE_TOKEN}" ]; then
-              echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1
-            fi
-
+          write_cfg() {
+            local path="$1"
             node -e '
               const fs = require("fs");
-              const path = process.env.HOME + "/.kilocode/cli/config.json";
-              const cfg = {
-                version: 1,
-                currentProvider: "kilocode",
-                providers: {
-                  kilocode: {
-                    type: "kilocode",
-                    kilocodeToken: process.env.KILOCODE_TOKEN,
-                    kilocodeModel: process.env.MODEL
-                  }
-                },
-                autoApproval: {
+              const p = process.argv[1];
+              const provider = process.env.PROVIDER;     // kilocode_hosted | self_hosted_openai | xai_direct | openrouter
+              const model = process.env.MODEL;
+
+              function autoApproval() {
+                return {
                   enabled: true,
                   read:  { enabled: true, outside: false },
                   write: { enabled: true, outside: false, protected: false },
@@ -121,77 +110,110 @@ jobs:
                   question: { enabled: false, timeout: 60 },
                   retry: { enabled: true, delay: 10 },
                   todo: { enabled: true }
-                }
-              };
-              fs.mkdirSync(require("path").dirname(path), { recursive: true });
-              fs.writeFileSync(path, JSON.stringify(cfg, null, 2));
-            '
+                };
+              }
 
+              let cfg;
+              if (provider === "kilocode_hosted") {
+                const token = process.env.KILOCODE_TOKEN;
+                if (!token) { console.error("::error::Missing secrets.KILOCODE_API_KEY"); process.exit(1); }
+                cfg = {
+                  version: 1,
+                  currentProvider: "default",
+                  providers: [
+                    {
+                      id: "default",
+                      provider: "kilocode",
+                      kilocodeToken: token,
+                      kilocodeModel: model
+                    }
+                  ],
+                  autoApproval: autoApproval()
+                };
+              } else {
+                const baseUrl = process.env.OPENAI_BASE_URL;
+                const apiKey  = process.env.OPENAI_API_KEY;
+                if (!baseUrl) { console.error("::error::Missing base URL for OpenAI-compatible provider"); process.exit(1); }
+                if (!apiKey)  { console.error("::error::Missing API key for OpenAI-compatible provider");  process.exit(1); }
+                cfg = {
+                  version: 1,
+                  currentProvider: "default",
+                  providers: [
+                    {
+                      id: "default",
+                      provider: "openai-compatible",
+                      baseUrl,
+                      apiKeyEnv: "OPENAI_API_KEY",
+                      model
+                    }
+                  ],
+                  autoApproval: autoApproval()
+                };
+              }
+
+              // Sanity checks
+              if (!Array.isArray(cfg.providers)) {
+                console.error("::error::providers must be an array");
+                process.exit(1);
+              }
+              if (!cfg.providers.find(pr => pr.id === cfg.currentProvider)) {
+                console.error("::error::currentProvider must match a providers[i].id");
+                process.exit(1);
+              }
+
+              fs.mkdirSync(require("path").dirname(p), { recursive: true });
+              fs.writeFileSync(p, JSON.stringify(cfg, null, 2));
+              console.log("Wrote config:", p);
+            ' "$path"
+          }
+
+          if [ "${PROVIDER}" = "kilocode_hosted" ]; then
+            export KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
+            # write both possible locations
+            write_cfg "${HOME}/.kilocode/config.json"
+            write_cfg "${HOME}/.kilocode/cli/config.json"
           else
-            # OpenAI-compatible providers (baseUrl + key + model)
+            # Map OpenAI-compatible baseUrl/key from secrets
             case "${PROVIDER}" in
               self_hosted_openai)
-                OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
-                OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
+                export OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
+                export OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
                 ;;
               xai_direct)
-                OPENAI_BASE_URL="https://api.x.ai"
-                OPENAI_API_KEY="${{ secrets.XAI_API_KEY }}"
+                export OPENAI_BASE_URL="https://api.x.ai"
+                export OPENAI_API_KEY="${{ secrets.XAI_API_KEY }}"
                 ;;
               openrouter)
-                OPENAI_BASE_URL="https://openrouter.ai/api/v1"
-                OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
+                export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+                export OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
                 ;;
               *)
                 echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
             esac
-
-            if [ -z "${OPENAI_BASE_URL}" ]; then echo "::error::Missing base URL for ${PROVIDER}"; exit 1; fi
-            if [ -z "${OPENAI_API_KEY}" ]; then echo "::error::Missing API key secret for ${PROVIDER}"; exit 1; fi
-
-            # Export for run step (optional convenience)
-            echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
-            echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> $GITHUB_ENV
-
-            node -e '
-              const fs = require("fs");
-              const path = process.env.HOME + "/.kilocode/cli/config.json";
-              const cfg = {
-                version: 1,
-                currentProvider: "openai-compatible",
-                providers: {
-                  "openai-compatible": {
-                    type: "openai-compatible",
-                    baseUrl: process.env.OPENAI_BASE_URL,
-                    apiKeyEnv: "OPENAI_API_KEY",
-                    model: process.env.MODEL
-                  }
-                },
-                autoApproval: {
-                  enabled: true,
-                  read:  { enabled: true, outside: false },
-                  write: { enabled: true, outside: false, protected: false },
-                  execute: {
-                    enabled: true,
-                    allowed: ["git", "node", "npm", "pnpm"],
-                    denied: ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
-                  },
-                  browser: { enabled: false },
-                  mcp: { enabled: true },
-                  mode: { enabled: true },
-                  subtasks: { enabled: true },
-                  question: { enabled: false, timeout: 60 },
-                  retry: { enabled: true, delay: 10 },
-                  todo: { enabled: true }
-                }
-              };
-              fs.mkdirSync(require("path").dirname(path), { recursive: true });
-              fs.writeFileSync(path, JSON.stringify(cfg, null, 2));
-            '
+            # write both possible locations
+            write_cfg "${HOME}/.kilocode/config.json"
+            write_cfg "${HOME}/.kilocode/cli/config.json"
           fi
+
+          # Minimal debug (no secrets leaked)
+          echo "::group::Kilocode config summary"
+          node -e '
+            const fs = require("fs");
+            for (const p of ["~/.kilocode/config.json","~/.kilocode/cli/config.json"]) {
+              const path = p.replace("~", process.env.HOME);
+              if (fs.existsSync(path)) {
+                const j = JSON.parse(fs.readFileSync(path,"utf8"));
+                const redacted = JSON.stringify(j, (k,v) =>
+                  (k.toLowerCase().includes("token")||k.toLowerCase().includes("key")) ? "***" : v, 2);
+                console.log(path + ":\n" + redacted + "\n");
+              }
+            }
+          '
+          echo "::endgroup::"
         env:
           KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
           MODEL: ${{ env.MODEL }}
+          PROVIDER: ${{ env.PROVIDER }}
 
       - name: Mark repo as safe for Git
         working-directory: ${{ env.WORKDIR }}
