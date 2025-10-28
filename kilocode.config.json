@@ -1,0 +1,11 @@
+{
+  "autoApproval": {
+    "enabled": true,
+    "read": { "enabled": true },
+    "write": { "enabled": true },
+    "execute": {
+      "enabled": true,
+      "allowed": ["npm", "git", "pnpm", "ls"]
+    }
+  }
+}
