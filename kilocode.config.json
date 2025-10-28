@@ -1,7 +1,7 @@
 {
   "api": {
     "provider": "kilocode",
-    "model": "Kilo Code",
+    "model": "xai/grok-code-fast-1",
     "apiKey": "${KILOCODE_API_KEY}"
   },
   "autoApproval": {
