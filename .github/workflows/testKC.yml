@@ -1,19 +1,34 @@
-name: KiloCode CLI demo (non-interactive)
+name: KiloCode – debug run
 
 on:
   workflow_dispatch:
 
 jobs:
-  kilocode-demo:
+  debug-kilocode:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
+    env:
+      # If you enable these in repo "Secrets and variables" as Repository secrets,
+      # the runner will print extra diagnostics.
+      ACTIONS_STEP_DEBUG: ${{ secrets.ACTIONS_STEP_DEBUG }}     # set to true
+      ACTIONS_RUNNER_DEBUG: ${{ secrets.ACTIONS_RUNNER_DEBUG }} # set to true
+      KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Print runner basics
+        run: |
+          uname -a
+          node -v
+          npm -v
+          echo "SHELL=$SHELL"
+          env | sort | sed -e 's/\(KILOCODE_TOKEN=\).*/\1***REDACTED***/'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -22,17 +37,17 @@ jobs:
 
       - name: Install KiloCode CLI
         run: |
+          set -euxo pipefail
           npm install -g @kilocode/cli
-          kilocode --version
+          which kilocode
+          kilocode --version || true
 
-      - name: Write KiloCode config for CLI path
-        env:
-          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+      - name: Write KiloCode config (both paths) + validate JSON
         run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.kilocode/cli" "$HOME/.kilocode"
-
-          cat > "$HOME/.kilocode/cli/config.json" <<'JSON'
+          set -euxo pipefail
+          mkdir -p ~/.kilocode/cli
+          mkdir -p ~/.kilocode
+          cat > ~/.kilocode/cli/config.json <<'JSON'
           {
             "version": 1,
             "currentProvider": "default",
@@ -41,79 +56,87 @@ jobs:
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "__KILOCODE_TOKEN__",
-                "kilocodeModel": "x-ai/grok-code-fast-1"
+                "kilocodeModel": "xai/grok-code-fast-1"
               }
             ],
             "autoApproval": {
               "enabled": true,
-              "read": { "enabled": true, "outside": false },
-              "write": { "enabled": true, "outside": false, "protected": false },
+              "read":    { "enabled": true,  "outside": false },
+              "write":   { "enabled": true,  "outside": false, "protected": false },
               "execute": {
                 "enabled": true,
                 "allowed": ["git", "node", "npm", "pnpm"],
-                "denied": ["sudo", "rm -rf", "git push --force"]
+                "denied":  ["sudo", "rm -rf", "git push --force"]
               },
               "question": { "enabled": false, "timeout": 60 },
-              "retry": { "enabled": true, "delay": 10 }
+              "retry":    { "enabled": true,  "delay": 10 }
             }
           }
           JSON
 
-          # Mirror for legacy path (optional)
-          cp "$HOME/.kilocode/cli/config.json" "$HOME/.kilocode/config.json"
+          # mirror to legacy path as well
+          cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
 
-          # Inject token
-          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" "$HOME/.kilocode/cli/config.json"
-          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" "$HOME/.kilocode/config.json"
+          # inject token safely
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/config.json
 
-      - name: Show config paths & contents (masked)
+          # show where config is and that it’s valid JSON
+          ls -la ~/.kilocode ~/.kilocode/cli
+          sudo apt-get update -y && sudo apt-get install -y jq
+          jq '.providers[0].provider, .providers[0] | del(.kilocodeToken)' ~/.kilocode/cli/config.json
+          # redact and print a preview
+          awk '{gsub(/"kilocodeToken": *".*"/,"\"kilocodeToken\": \"***REDACTED***\""); print }' \
+            ~/.kilocode/cli/config.json
+
+      - name: Run KiloCode with FULL tracing
         env:
-          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+          # Common toggles some CLIs honor; harmless if ignored:
+          FORCE_COLOR: "0"
+          NO_COLOR: "1"
+          DEBUG: "*"
         run: |
-          set -euo pipefail
-          # Mask the actual token value in logs
-          echo "::add-mask::$KILOCODE_TOKEN"
+          set -euxo pipefail
 
-          echo "Home directory: $HOME"
-          echo "Expected config locations:"
-          printf " - %s\n" "$HOME/.kilocode/cli/config.json" "$HOME/.kilocode/config.json"
-          echo
+          # Make the prompt a here-doc to avoid accidental shell quoting issues.
+          cat > prompt.txt <<'PROMPT'
+          Create or update a file named KILOCODE_DEMO.md at the repo root.
+          Add a markdown H1 'KiloCode CLI Demo', today's UTC timestamp,
+          and a short note: 'Hello from GitHub Actions.' Keep it idempotent.
+          PROMPT
 
-          echo "[Tree] $HOME/.kilocode"
-          ls -la "$HOME/.kilocode" || true
-          echo
-          echo "[Tree] $HOME/.kilocode/cli"
-          ls -la "$HOME/.kilocode/cli" || true
-          echo
+          # Run and capture ALL output without losing exit codes in the pipe.
+          #  - 'stdbuf' disables stdio buffering so logs stream line-by-line.
+          #  - 'tee' lets us see output live AND save it for postmortem.
+          #  - We capture the exit code explicitly.
+          set +e
+          stdbuf -oL -eL kilocode --auto --timeout 300 < prompt.txt 2>&1 | tee kilocode.log
+          EXIT=$?
+          set -e
 
-          # Print file contents, pretty if jq exists; token is masked by Actions
-          for f in "$HOME/.kilocode/config.json" "$HOME/.kilocode/cli/config.json"; do
-            if [ -f "$f" ]; then
-              echo "----- CONTENTS OF: $f -----"
-              if command -v jq >/dev/null 2>&1; then
-                jq . "$f" || cat "$f"
-              else
-                cat "$f"
-              fi
-              echo "--------------------------------"
-              echo
-            else
-              echo "Missing: $f"
-            fi
-          done
+          echo "----- kilocode exit code: $EXIT -----"
+          if [ $EXIT -ne 0 ]; then
+            echo "::error::KiloCode exited with code $EXIT"
+          fi
 
-      - name: Run KiloCode in autonomous mode
+      - name: Show log tail (if failed)
+        if: ${{ failure() }}
         run: |
-          echo "Create or update a file named KILOCODE_DEMO.md at the repo root. Add a markdown H1 'KiloCode CLI Demo', today's UTC timestamp, and a short note: 'Hello from GitHub Actions.' Keep it idempotent." \
-          | kilocode --auto --timeout 300
+          echo "=== Last 200 lines of kilocode.log ==="
+          tail -n 200 kilocode.log || true
+
+      - name: Show repo diffs (whether or not it failed)
+        run: |
+          git status --porcelain
+          git diff -- KILOCODE_DEMO.md || true
 
       - name: Commit and push changes (if any)
         run: |
           if [ -n "$(git status --porcelain)" ]; then
-            git config user.name "github-actions[bot]"
+            git config user.name  "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add -A
-            git commit -m "chore: update via KiloCode CLI demo"
+            git commit -m "chore: update via KiloCode CLI (debug run)"
             git push
           else
             echo "No changes to commit."
