@@ -1,19 +1,16 @@
-name: KiloCode CLI demo
+name: KiloCode CLI demo (non-interactive)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   kilocode-demo:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: write  # allow committing with GITHUB_TOKEN
+      contents: write
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -27,15 +24,18 @@ jobs:
         run: |
           npm install -g @kilocode/cli
           kilocode --version
-        # Install command per docs: npm i -g @kilocode/cli
-        # https://kilocode.ai/docs/cli
+        # per docs: npm install -g @kilocode/cli
+        # and CLI supports --auto for CI. :contentReference[oaicite:1]{index=1}
 
-      - name: Write KiloCode config (non-interactive)
+      - name: Write KiloCode config for CLI path
         env:
-          KILOCODE_TOKEN: ${{ secrets.KILOCODE_TOKEN }}   # add in repo secrets
+          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
         run: |
+          # Create both canonical and legacy locations for safety
+          mkdir -p ~/.kilocode/cli
           mkdir -p ~/.kilocode
-          cat > ~/.kilocode/config.json <<'JSON'
+
+          cat > ~/.kilocode/cli/config.json <<'JSON'
           {
             "version": 1,
             "currentProvider": "default",
@@ -43,7 +43,7 @@ jobs:
               {
                 "id": "default",
                 "provider": "kilocode",
-                "kilocodeToken": "${{ secrets.KILOCODE_API_KEY }}",
+                "kilocodeToken": "__KILOCODE_TOKEN__",
                 "kilocodeModel": "xai/grok-code-fast-1"
               }
             ],
@@ -61,24 +61,21 @@ jobs:
             }
           }
           JSON
-          # inject the secret token
+
+          # (optional) also mirror to ~/.kilocode/config.json for older builds
+          cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
+
+          # inject token
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json
           sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/config.json
 
-      - name: Run KiloCode in autonomous mode to write a file
+      - name: Run KiloCode in autonomous mode
         run: |
-          echo "Create or update a file named KILOCODE_DEMO.md at repo root. \
-          Add a markdown H1 'KiloCode CLI Demo', today’s UTC timestamp, \
-          and a short note: 'Hello from GitHub Actions.' Keep it idempotent." \
+          echo "Create or update a file named KILOCODE_DEMO.md at the repo root. Add a markdown H1 'KiloCode CLI Demo', today's UTC timestamp, and a short note: 'Hello from GitHub Actions.' Keep it idempotent." \
           | kilocode --auto --timeout 300
-        # Non-interactive CI/CD example mirrors docs' --auto guidance. :contentReference[oaicite:1]{index=1}
+        # --auto and timeouts are documented for CI usage. :contentReference[oaicite:2]{index=2}
 
-      - name: Show changes
-        run: |
-          git status --porcelain
-          git diff --staged || true
-          git diff || true
-
-      - name: Commit and push (if changed)
+      - name: Commit and push changes (if any)
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git config user.name "github-actions[bot]"
