@@ -1,4 +1,9 @@
 {
+  "api": {
+    "provider": "kilocode",
+    "model": "Kilo Code",
+    "apiKey": "${KILOCODE_API_KEY}"
+  },
   "autoApproval": {
     "enabled": true,
     "read": { "enabled": true },
