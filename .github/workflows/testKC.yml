@@ -41,7 +41,7 @@ jobs:
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "__KILOCODE_TOKEN__",
-                "kilocodeModel": "xai/grok-code-fast-1"
+                "kilocodeModel": "x-ai/grok-code-fast-1"
               }
             ],
             "autoApproval": {
