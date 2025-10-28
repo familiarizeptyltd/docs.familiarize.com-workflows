@@ -79,52 +79,56 @@ jobs:
       - name: Install Kilocode CLI
         run: npm i -g @kilocode/cli
 
-      - name: Write Kilocode CLI config (provider + auto-approvals)
+      - name: Build Kilocode CLI config (provider + auto-approvals) without heredocs
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ~/.kilocode/cli
 
           if [ "${PROVIDER}" = "kilocode_hosted" ]; then
-            # OFFICIAL KILOCODE PROVIDER (token + model)
+            # Official Kilocode provider: requires token + model
             KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
             if [ -z "${KILOCODE_TOKEN}" ]; then
               echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1
             fi
 
-            cat > ~/.kilocode/cli/config.json <<EOF
-{
-  "version": 1,
-  "currentProvider": "kilocode",
-  "providers": {
-    "kilocode": {
-      "type": "kilocode",
-      "kilocodeToken": "${KILOCODE_TOKEN}",
-      "kilocodeModel": "${MODEL}"
-    }
-  },
-  "autoApproval": {
-    "enabled": true,
-    "read":  { "enabled": true, "outside": false },
-    "write": { "enabled": true, "outside": false, "protected": false },
-    "execute": {
-      "enabled": true,
-      "allowed": ["git", "node", "npm", "pnpm"],
-      "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
-    },
-    "browser": { "enabled": false },
-    "mcp": { "enabled": true },
-    "mode": { "enabled": true },
-    "subtasks": { "enabled": true },
-    "question": { "enabled": false, "timeout": 60 },
-    "retry": { "enabled": true, "delay": 10 },
-    "todo": { "enabled": true }
-  }
-}
-EOF
+            node -e '
+              const fs = require("fs");
+              const path = process.env.HOME + "/.kilocode/cli/config.json";
+              const cfg = {
+                version: 1,
+                currentProvider: "kilocode",
+                providers: {
+                  kilocode: {
+                    type: "kilocode",
+                    kilocodeToken: process.env.KILOCODE_TOKEN,
+                    kilocodeModel: process.env.MODEL
+                  }
+                },
+                autoApproval: {
+                  enabled: true,
+                  read:  { enabled: true, outside: false },
+                  write: { enabled: true, outside: false, protected: false },
+                  execute: {
+                    enabled: true,
+                    allowed: ["git", "node", "npm", "pnpm"],
+                    denied: ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+                  },
+                  browser: { enabled: false },
+                  mcp: { enabled: true },
+                  mode: { enabled: true },
+                  subtasks: { enabled: true },
+                  question: { enabled: false, timeout: 60 },
+                  retry: { enabled: true, delay: 10 },
+                  todo: { enabled: true }
+                }
+              };
+              fs.mkdirSync(require("path").dirname(path), { recursive: true });
+              fs.writeFileSync(path, JSON.stringify(cfg, null, 2));
+            '
 
           else
-            # OPENAI-COMPATIBLE PROVIDERS (baseUrl + key + model)
+            # OpenAI-compatible providers (baseUrl + key + model)
             case "${PROVIDER}" in
               self_hosted_openai)
                 OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
@@ -138,47 +142,56 @@ EOF
                 OPENAI_BASE_URL="https://openrouter.ai/api/v1"
                 OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
                 ;;
-              *) echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
+              *)
+                echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
             esac
 
             if [ -z "${OPENAI_BASE_URL}" ]; then echo "::error::Missing base URL for ${PROVIDER}"; exit 1; fi
             if [ -z "${OPENAI_API_KEY}" ]; then echo "::error::Missing API key secret for ${PROVIDER}"; exit 1; fi
 
+            # Export for run step (optional convenience)
             echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
             echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> $GITHUB_ENV
 
-            cat > ~/.kilocode/cli/config.json <<EOF
-{
-  "version": 1,
-  "currentProvider": "openai-compatible",
-  "providers": {
-    "openai-compatible": {
-      "type": "openai-compatible",
-      "baseUrl": "${OPENAI_BASE_URL}",
-      "apiKeyEnv": "OPENAI_API_KEY",
-      "model": "${MODEL}"
-    }
-  },
-  "autoApproval": {
-    "enabled": true,
-    "read":  { "enabled": true, "outside": false },
-    "write": { "enabled": true, "outside": false, "protected": false },
-    "execute": {
-      "enabled": true,
-      "allowed": ["git", "node", "npm", "pnpm"],
-      "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
-    },
-    "browser": { "enabled": false },
-    "mcp": { "enabled": true },
-    "mode": { "enabled": true },
-    "subtasks": { "enabled": true },
-    "question": { "enabled": false, "timeout": 60 },
-    "retry": { "enabled": true, "delay": 10 },
-    "todo": { "enabled": true }
-  }
-}
-EOF
+            node -e '
+              const fs = require("fs");
+              const path = process.env.HOME + "/.kilocode/cli/config.json";
+              const cfg = {
+                version: 1,
+                currentProvider: "openai-compatible",
+                providers: {
+                  "openai-compatible": {
+                    type: "openai-compatible",
+                    baseUrl: process.env.OPENAI_BASE_URL,
+                    apiKeyEnv: "OPENAI_API_KEY",
+                    model: process.env.MODEL
+                  }
+                },
+                autoApproval: {
+                  enabled: true,
+                  read:  { enabled: true, outside: false },
+                  write: { enabled: true, outside: false, protected: false },
+                  execute: {
+                    enabled: true,
+                    allowed: ["git", "node", "npm", "pnpm"],
+                    denied: ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+                  },
+                  browser: { enabled: false },
+                  mcp: { enabled: true },
+                  mode: { enabled: true },
+                  subtasks: { enabled: true },
+                  question: { enabled: false, timeout: 60 },
+                  retry: { enabled: true, delay: 10 },
+                  todo: { enabled: true }
+                }
+              };
+              fs.mkdirSync(require("path").dirname(path), { recursive: true });
+              fs.writeFileSync(path, JSON.stringify(cfg, null, 2));
+            '
           fi
+        env:
+          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+          MODEL: ${{ env.MODEL }}
 
       - name: Mark repo as safe for Git
         working-directory: ${{ env.WORKDIR }}
