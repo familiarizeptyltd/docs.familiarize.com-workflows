@@ -24,18 +24,15 @@ jobs:
         run: |
           npm install -g @kilocode/cli
           kilocode --version
-        # per docs: npm install -g @kilocode/cli
-        # and CLI supports --auto for CI. :contentReference[oaicite:1]{index=1}
 
       - name: Write KiloCode config for CLI path
         env:
-          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+          KILOCODE_TOKEN: ${{ secrets.KILOCODE_TOKEN }}
         run: |
-          # Create both canonical and legacy locations for safety
-          mkdir -p ~/.kilocode/cli
-          mkdir -p ~/.kilocode
+          set -euo pipefail
+          mkdir -p "$HOME/.kilocode/cli" "$HOME/.kilocode"
 
-          cat > ~/.kilocode/cli/config.json <<'JSON'
+          cat > "$HOME/.kilocode/cli/config.json" <<'JSON'
           {
             "version": 1,
             "currentProvider": "default",
@@ -62,18 +59,53 @@ jobs:
           }
           JSON
 
-          # (optional) also mirror to ~/.kilocode/config.json for older builds
-          cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
+          # Mirror for legacy path (optional)
+          cp "$HOME/.kilocode/cli/config.json" "$HOME/.kilocode/config.json"
 
-          # inject token
-          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json
-          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/config.json
+          # Inject token
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" "$HOME/.kilocode/cli/config.json"
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" "$HOME/.kilocode/config.json"
+
+      - name: Show config paths & contents (masked)
+        env:
+          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Mask the actual token value in logs
+          echo "::add-mask::$KILOCODE_TOKEN"
+
+          echo "Home directory: $HOME"
+          echo "Expected config locations:"
+          printf " - %s\n" "$HOME/.kilocode/cli/config.json" "$HOME/.kilocode/config.json"
+          echo
+
+          echo "[Tree] $HOME/.kilocode"
+          ls -la "$HOME/.kilocode" || true
+          echo
+          echo "[Tree] $HOME/.kilocode/cli"
+          ls -la "$HOME/.kilocode/cli" || true
+          echo
+
+          # Print file contents, pretty if jq exists; token is masked by Actions
+          for f in "$HOME/.kilocode/config.json" "$HOME/.kilocode/cli/config.json"; do
+            if [ -f "$f" ]; then
+              echo "----- CONTENTS OF: $f -----"
+              if command -v jq >/dev/null 2>&1; then
+                jq . "$f" || cat "$f"
+              else
+                cat "$f"
+              fi
+              echo "--------------------------------"
+              echo
+            else
+              echo "Missing: $f"
+            fi
+          done
 
       - name: Run KiloCode in autonomous mode
         run: |
           echo "Create or update a file named KILOCODE_DEMO.md at the repo root. Add a markdown H1 'KiloCode CLI Demo', today's UTC timestamp, and a short note: 'Hello from GitHub Actions.' Keep it idempotent." \
           | kilocode --auto --timeout 300
-        # --auto and timeouts are documented for CI usage. :contentReference[oaicite:2]{index=2}
 
       - name: Commit and push changes (if any)
         run: |
