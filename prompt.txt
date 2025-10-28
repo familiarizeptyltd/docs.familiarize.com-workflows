@@ -1,0 +1,3 @@
+Create or update a file named KILOCODE_DEMO.md at the repo root.
+Add a markdown H1 'KiloCode CLI Demo', today's UTC timestamp,
+and a short note: 'Hello from GitHub Actions.' Keep it idempotent.

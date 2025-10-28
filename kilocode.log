@@ -1,0 +1,514 @@
+]0;Kilo Code - docs.familiarize.com-workflows2025-10-28T06:04:01.844Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/v1/models',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'router.requesty.ai',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:01.852Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/api/gateway/v1/models',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'glama.ai',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:01.854Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/models',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'api.getunbound.ai',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:01.856Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/v1/models',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'Content-Type': 'application/json',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'llm.chutes.ai',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:01.859Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'http:',
+  path: '/api/tags',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'localhost',
+  port: '11434',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:01.861Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/v1/models',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'ai-gateway.vercel.sh',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:01.862Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/v1/openai/models',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'HTTP-Referer': 'https://kilocode.ai',
+    'X-Title': 'Kilo Code',
+    'X-KiloCode-Version': '4.111.0',
+    'User-Agent': 'Kilo-Code/4.111.0',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'api.deepinfra.com',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:01.864Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/rest/v2/openrouter',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'catalog.endpoints.ai.ovh.net',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:03.091Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/api/profile',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbnYiOiJwcm9kdWN0aW9uIiwia2lsb1VzZXJJZCI6Im9hdXRoL2dvb2dsZToxMDUxMzIyMjM4NTczODU2NDEwMzEiLCJhcGlUb2tlblBlcHBlciI6bnVsbCwidmVyc2lvbiI6MywiaWF0IjoxNzYxNTYxMzExLCJleHAiOjE5MTkzNDkzMTF9.J-_HRyoR37ajljc2Xi7mc2Bi8zC5VQUctfNWWWbZDfQ',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'api.kilocode.ai',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+2025-10-28T06:04:03.093Z follow-redirects options {
+  maxRedirects: 21,
+  maxBodyLength: Infinity,
+  protocol: 'https:',
+  path: '/api/profile/balance',
+  method: 'GET',
+  headers: [Object: null prototype] {
+    Accept: 'application/json, text/plain, */*',
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbnYiOiJwcm9kdWN0aW9uIiwia2lsb1VzZXJJZCI6Im9hdXRoL2dvb2dsZToxMDUxMzIyMjM4NTczODU2NDEwMzEiLCJhcGlUb2tlblBlcHBlciI6bnVsbCwidmVyc2lvbiI6MywiaWF0IjoxNzYxNTYxMzExLCJleHAiOjE5MTkzNDkzMTF9.J-_HRyoR37ajljc2Xi7mc2Bi8zC5VQUctfNWWWbZDfQ',
+    'User-Agent': 'axios/1.12.2',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  },
+  agents: { http: undefined, https: undefined },
+  auth: undefined,
+  family: undefined,
+  beforeRedirect: [Function: qas],
+  beforeRedirects: { proxy: [Function (anonymous)] },
+  hostname: 'api.kilocode.ai',
+  port: '',
+  agent: undefined,
+  nativeProtocols: {
+    'http:': {
+      _connectionListener: [Function: connectionListener],
+      METHODS: [Array],
+      STATUS_CODES: [Object],
+      Agent: [Function],
+      ClientRequest: [Function: ClientRequest],
+      IncomingMessage: [Function: IncomingMessage],
+      OutgoingMessage: [Function: OutgoingMessage],
+      Server: [Function: Server],
+      ServerResponse: [Function: ServerResponse],
+      createServer: [Function: createServer],
+      validateHeaderName: [Function],
+      validateHeaderValue: [Function],
+      get: [Function: get],
+      request: [Function: request],
+      setMaxIdleHTTPParsers: [Function: setMaxIdleHTTPParsers],
+      maxHeaderSize: [Getter],
+      globalAgent: [Getter/Setter]
+    },
+    'https:': {
+      Agent: [Function: Agent],
+      globalAgent: [Agent],
+      Server: [Function: Server],
+      createServer: [Function: createServer],
+      get: [Function: get],
+      request: [Function: request]
+    }
+  }
+}
+
+
+ ⣿⡿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⢿⣿
+ ⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿     █████   ████  ███  ████                █████████               █████
+ ⣿⡇⠀⠀⢰⣶⠀⠀⣶⡆⢰⣶⣶⣄⠀⠀⠀⠀⢸⣿    ░░███   ███░  ░░░  ░░███               ███░░░░░███             ░░███
+ ⣿⡇⠀⠀⢸⣿⠿⠿⣦⡀⠀⠀⢸⣿⠀⠀⠀⠀⢸⣿     ░███  ███    ████  ░███   ██████     ███     ░░░   ██████   ███████   ██████
+ ⣿⡇⠀⠀⠸⠿⠀⠀⠿⠃⠘⠿⠿⠿⠿⠇⠀⠀⢸⣿     ░███████    ░░███  ░███  ███░░███   ░███          ███░░███ ███░░███  ███░░███
+ ⣿⡇⠀⠀⢰⣶⠀⠀⣶⡄⠀⠀⣴⣶⣦⡀⠀⠀⢸⣿     ░███░░███    ░███  ░███ ░███ ░███   ░███         ░███ ░███░███ ░███ ░███████
+ ⣿⡇⠀⠀⢸⣿⠀⠀⠀⠀⢰⣿⠁⠀⣿⡇⠀⠀⢸⣿     ░███ ░░███   ░███  ░███ ░███ ░███   ░░███     ███░███ ░███░███ ░███ ░███░░░
+ ⣿⡇⠀⠀⠘⠿⠿⠿⠿⠇⠈⠻⠿⠿⠀⠀⠀⠀⢸⣿     █████ ░░████ █████ █████░░██████     ░░█████████ ░░██████ ░░████████░░██████
+ ⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿    ░░░░░   ░░░░ ░░░░░ ░░░░░  ░░░░░░       ░░░░░░░░░   ░░░░░░   ░░░░░░░░  ░░░░░░
+ ⣿⣷⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣾⣿
+
+
+
+[?2004l
