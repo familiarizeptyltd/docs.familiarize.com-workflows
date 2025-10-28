@@ -17,10 +17,11 @@ on:
         description: "LLM provider"
         type: choice
         options:
-          - kilocode_hosted        # provider: kilocode (token+model)
-          - self_hosted_openai     # provider: openai-compatible
-          - xai_direct             # provider: openai-compatible
-          - openrouter             # provider: openai-compatible
+          - kilocode_hosted          # official 'kilocode' provider (token+model)
+          - kilocode_openai_compat   # Kilocode's OpenAI-compatible gateway
+          - self_hosted_openai       # your own OpenAI-compatible endpoint
+          - xai_direct               # xAI OpenAI-compatible
+          - openrouter               # OpenRouter OpenAI-compatible
         default: kilocode_hosted
         required: true
       model:
@@ -85,12 +86,37 @@ jobs:
           set -euo pipefail
           mkdir -p ~/.kilocode ~/.kilocode/cli
 
+          # Map OpenAI-compatible envs when needed (exported for the Node writer)
+          case "${PROVIDER}" in
+            self_hosted_openai)
+              export OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
+              export OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
+              ;;
+            xai_direct)
+              export OPENAI_BASE_URL="https://api.x.ai"
+              export OPENAI_API_KEY="${{ secrets.XAI_API_KEY }}"
+              ;;
+            openrouter)
+              export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+              export OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
+              ;;
+            kilocode_openai_compat)
+              export OPENAI_BASE_URL="https://kilocode.ai/api/openrouter"
+              export OPENAI_API_KEY="${{ secrets.KILOCODE_API_KEY }}"
+              ;;
+            kilocode_hosted)
+              export KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
+              ;;
+            *)
+              echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
+          esac
+
           write_cfg() {
             local path="$1"
             node -e '
               const fs = require("fs");
               const p = process.argv[1];
-              const provider = process.env.PROVIDER;     // kilocode_hosted | self_hosted_openai | xai_direct | openrouter
+              const provider = process.env.PROVIDER;
               const model = process.env.MODEL;
 
               function autoApproval() {
@@ -114,6 +140,7 @@ jobs:
               }
 
               let cfg;
+
               if (provider === "kilocode_hosted") {
                 const token = process.env.KILOCODE_TOKEN;
                 if (!token) { console.error("::error::Missing secrets.KILOCODE_API_KEY"); process.exit(1); }
@@ -151,7 +178,6 @@ jobs:
                 };
               }
 
-              // Sanity checks
               if (!Array.isArray(cfg.providers)) {
                 console.error("::error::providers must be an array");
                 process.exit(1);
@@ -167,33 +193,9 @@ jobs:
             ' "$path"
           }
 
-          if [ "${PROVIDER}" = "kilocode_hosted" ]; then
-            export KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
-            # write both possible locations
-            write_cfg "${HOME}/.kilocode/config.json"
-            write_cfg "${HOME}/.kilocode/cli/config.json"
-          else
-            # Map OpenAI-compatible baseUrl/key from secrets
-            case "${PROVIDER}" in
-              self_hosted_openai)
-                export OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
-                export OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
-                ;;
-              xai_direct)
-                export OPENAI_BASE_URL="https://api.x.ai"
-                export OPENAI_API_KEY="${{ secrets.XAI_API_KEY }}"
-                ;;
-              openrouter)
-                export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
-                export OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
-                ;;
-              *)
-                echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
-            esac
-            # write both possible locations
-            write_cfg "${HOME}/.kilocode/config.json"
-            write_cfg "${HOME}/.kilocode/cli/config.json"
-          fi
+          # Write to both locations the CLI might read
+          write_cfg "${HOME}/.kilocode/config.json"
+          write_cfg "${HOME}/.kilocode/cli/config.json"
 
           # Minimal debug (no secrets leaked)
           echo "::group::Kilocode config summary"
@@ -210,10 +212,6 @@ jobs:
             }
           '
           echo "::endgroup::"
-        env:
-          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
-          MODEL: ${{ env.MODEL }}
-          PROVIDER: ${{ env.PROVIDER }}
 
       - name: Mark repo as safe for Git
         working-directory: ${{ env.WORKDIR }}
@@ -254,6 +252,21 @@ jobs:
           echo "KILOCODE_CI=true" >> $GITHUB_ENV
           echo "NO_COLOR=1" >> $GITHUB_ENV
           echo "TERM=xterm" >> $GITHUB_ENV
+          # These envs commonly unlock more verbose logs in CLIs
+          echo "DEBUG=kilocode:*" >> $GITHUB_ENV
+          echo "KILOCODE_DEBUG=1" >> $GITHUB_ENV
+
+      # ---- New: Preflight 'ask' to confirm provider works headlessly ----
+      - name: Kilocode preflight (ask mode ping)
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[mode] Use ask." | kilocode --auto --timeout "60" --workspace "${PWD}" --mode "ask" || rc=$?
+          if [ -n "${rc:-}" ] && [ "${rc}" != "0" ]; then
+            echo "::error::Kilocode preflight failed with code ${rc}"
+            exit "${rc}"
+          fi
 
       - name: Run Kilocode autonomously with prompt
         working-directory: ${{ env.WORKDIR }}
@@ -264,12 +277,16 @@ jobs:
           {
             echo "[mode] Use ${MODE}.";
             cat "${PROMPT_FILE}";
-          } | kilocode --auto --timeout "${KILO_TIMEOUT}" --workspace "${PWD}" --mode "${MODE}" || rc=$?
+          } | kilocode --auto --timeout "${KILO_TIMEOUT}" --workspace "${PWD}" --mode "${MODE}" 2>&1 | tee kilocode.log || rc=$?
 
           if [ "${rc:-0}" = "124" ]; then
             echo "::error::Kilocode timed out after ${KILO_TIMEOUT}s"; exit 124
           elif [ -n "${rc:-}" ] && [ "${rc}" != "0" ]; then
-            echo "::error::Kilocode exited with error code ${rc}"; exit "${rc}"
+            echo "::group::Kilocode last 200 log lines"
+            tail -n 200 kilocode.log || true
+            echo "::endgroup::"
+            echo "::error::Kilocode exited with error code ${rc}"
+            exit "${rc}"
           fi
 
       - name: Commit & push changes (if any)
