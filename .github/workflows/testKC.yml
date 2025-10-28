@@ -1,0 +1,91 @@
+name: KiloCode CLI demo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  kilocode-demo:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # allow committing with GITHUB_TOKEN
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install KiloCode CLI
+        run: |
+          npm install -g @kilocode/cli
+          kilocode --version
+        # Install command per docs: npm i -g @kilocode/cli
+        # https://kilocode.ai/docs/cli
+
+      - name: Write KiloCode config (non-interactive)
+        env:
+          KILOCODE_TOKEN: ${{ secrets.KILOCODE_TOKEN }}   # add in repo secrets
+        run: |
+          mkdir -p ~/.kilocode
+          cat > ~/.kilocode/config.json <<'JSON'
+          {
+            "version": 1,
+            "currentProvider": "default",
+            "providers": [
+              {
+                "id": "default",
+                "provider": "kilocode",
+                "kilocodeToken": "${{ secrets.KILOCODE_API_KEY }}",
+                "kilocodeModel": "xai/grok-code-fast-1"
+              }
+            ],
+            "autoApproval": {
+              "enabled": true,
+              "read": { "enabled": true, "outside": false },
+              "write": { "enabled": true, "outside": false, "protected": false },
+              "execute": {
+                "enabled": true,
+                "allowed": ["git", "node", "npm", "pnpm"],
+                "denied": ["sudo", "rm -rf", "git push --force"]
+              },
+              "question": { "enabled": false, "timeout": 60 },
+              "retry": { "enabled": true, "delay": 10 }
+            }
+          }
+          JSON
+          # inject the secret token
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/config.json
+
+      - name: Run KiloCode in autonomous mode to write a file
+        run: |
+          echo "Create or update a file named KILOCODE_DEMO.md at repo root. \
+          Add a markdown H1 'KiloCode CLI Demo', today’s UTC timestamp, \
+          and a short note: 'Hello from GitHub Actions.' Keep it idempotent." \
+          | kilocode --auto --timeout 300
+        # Non-interactive CI/CD example mirrors docs' --auto guidance. :contentReference[oaicite:1]{index=1}
+
+      - name: Show changes
+        run: |
+          git status --porcelain
+          git diff --staged || true
+          git diff || true
+
+      - name: Commit and push (if changed)
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "chore: update via KiloCode CLI demo"
+            git push
+          else
+            echo "No changes to commit."
+          fi
