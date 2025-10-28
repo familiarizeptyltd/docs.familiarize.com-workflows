@@ -27,7 +27,7 @@ jobs:
 
       - name: Write KiloCode config for CLI path
         env:
-          KILOCODE_TOKEN: ${{ secrets.KILOCODE_TOKEN }}
+          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.kilocode/cli" "$HOME/.kilocode"
