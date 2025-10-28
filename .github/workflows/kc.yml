@@ -17,10 +17,11 @@ on:
         description: "LLM provider"
         type: choice
         options:
-          - kilocode_hosted        # provider: kilocode (token+model)
-          - self_hosted_openai     # provider: openai-compatible
-          - xai_direct             # provider: openai-compatible
-          - openrouter             # provider: openai-compatible
+          - kilocode_hosted        # official Kilocode provider (token+model)
+          - kilocode_openai_compat # Kilocode OpenAI-compatible gateway
+          - self_hosted_openai     # your OpenAI-compatible endpoint
+          - xai_direct             # xAI OpenAI-compatible
+          - openrouter             # OpenRouter OpenAI-compatible
         default: kilocode_hosted
         required: true
       model:
@@ -79,121 +80,151 @@ jobs:
       - name: Install Kilocode CLI
         run: npm i -g @kilocode/cli
 
-      # Hard reset any old/incorrect configs so CLI doesn't read them
       - name: Remove legacy Kilo config files
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf ~/.kilocode || true
-          mkdir -p ~/.kilocode/cli
+          rm -rf "${HOME}/.kilocode"
+          mkdir -p "${HOME}/.kilocode/cli"
 
-      - name: Write Kilocode CLI config (providers[] array + auto-approvals)
+      - name: Build Kilocode CLI config (providers array; write both paths)
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ "${PROVIDER}" = "kilocode_hosted" ]; then
-            # OFFICIAL KILOCODE PROVIDER
-            KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
-            if [ -z "${KILOCODE_TOKEN}" ]; then
-              echo "::error::Missing secrets.KILOCODE_API_KEY"; exit 1
-            fi
+          # Map OpenAI-compatible envs or Kilocode token for the Node writer
+          case "${PROVIDER}" in
+            self_hosted_openai)
+              export OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
+              export OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
+              ;;
+            xai_direct)
+              export OPENAI_BASE_URL="https://api.x.ai"
+              export OPENAI_API_KEY="${{ secrets.XAI_API_KEY }}"
+              ;;
+            openrouter)
+              export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+              export OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
+              ;;
+            kilocode_openai_compat)
+              export OPENAI_BASE_URL="https://kilocode.ai/api/openrouter"
+              export OPENAI_API_KEY="${{ secrets.KILOCODE_API_KEY }}"
+              ;;
+            kilocode_hosted)
+              export KILOCODE_TOKEN="${{ secrets.KILOCODE_API_KEY }}"
+              ;;
+            *)
+              echo "::error::Unknown provider: ${PROVIDER}"; exit 1
+              ;;
+          esac
 
-            cat > ~/.kilocode/cli/config.json <<EOF
-{
-  "version": 1,
-  "currentProvider": "default",
-  "providers": [
-    {
-      "id": "default",
-      "provider": "kilocode",
-      "kilocodeToken": "${KILOCODE_TOKEN}",
-      "kilocodeModel": "${MODEL}"
-    }
-  ],
-  "autoApproval": {
-    "enabled": true,
-    "read":  { "enabled": true, "outside": false },
-    "write": { "enabled": true, "outside": false, "protected": false },
-    "execute": {
-      "enabled": true,
-      "allowed": ["git", "node", "npm", "pnpm"],
-      "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
-    },
-    "browser": { "enabled": false },
-    "mcp": { "enabled": true },
-    "mode": { "enabled": true },
-    "subtasks": { "enabled": true },
-    "question": { "enabled": false, "timeout": 60 },
-    "retry": { "enabled": true, "delay": 10 },
-    "todo": { "enabled": true }
-  }
-}
-EOF
+          write_cfg() {
+            local path="$1"
+            node -e '
+              const fs = require("fs");
+              const path = process.argv[1];
+              const provider = process.env.PROVIDER;
+              const model = process.env.MODEL;
 
-          else
-            # OPENAI-COMPATIBLE PROVIDERS
-            case "${PROVIDER}" in
-              self_hosted_openai)
-                OPENAI_BASE_URL="${{ secrets.LLM_BASE_URL }}"
-                OPENAI_API_KEY="${{ secrets.LLM_API_KEY }}"
-                ;;
-              xai_direct)
-                OPENAI_BASE_URL="https://api.x.ai"
-                OPENAI_API_KEY="${{ secrets.XAI_API_KEY }}"
-                ;;
-              openrouter)
-                OPENAI_BASE_URL="https://openrouter.ai/api/v1"
-                OPENAI_API_KEY="${{ secrets.OPENROUTER_API_KEY }}"
-                ;;
-              *)
-                echo "::error::Unknown provider: ${PROVIDER}"; exit 1;;
-            esac
+              const autoApproval = {
+                enabled: true,
+                read:  { enabled: true, outside: false },
+                write: { enabled: true, outside: false, protected: false },
+                execute: {
+                  enabled: true,
+                  allowed: ["git", "node", "npm", "pnpm"],
+                  denied: ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
+                },
+                browser: { enabled: false },
+                mcp: { enabled: true },
+                mode: { enabled: true },
+                subtasks: { enabled: true },
+                question: { enabled: false, timeout: 60 },
+                retry: { enabled: true, delay: 10 },
+                todo: { enabled: true }
+              };
 
-            if [ -z "${OPENAI_BASE_URL}" ]; then echo "::error::Missing base URL for ${PROVIDER}"; exit 1; fi
-            if [ -z "${OPENAI_API_KEY}" ]; then echo "::error::Missing API key secret for ${PROVIDER}"; exit 1; fi
+              let cfg;
 
-            # Export for run step
-            echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> $GITHUB_ENV
-            echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> $GITHUB_ENV
+              if (provider === "kilocode_hosted") {
+                const token = process.env.KILOCODE_TOKEN;
+                if (!token) { console.error("::error::Missing secrets.KILOCODE_API_KEY"); process.exit(1); }
+                cfg = {
+                  version: 1,
+                  currentProvider: "default",
+                  providers: [
+                    {
+                      id: "default",
+                      provider: "kilocode",
+                      kilocodeToken: token,
+                      kilocodeModel: model
+                    }
+                  ],
+                  autoApproval
+                };
+              } else {
+                const baseUrl = process.env.OPENAI_BASE_URL;
+                const apiKey  = process.env.OPENAI_API_KEY;
+                if (!baseUrl) { console.error("::error::Missing base URL for OpenAI-compatible provider"); process.exit(1); }
+                if (!apiKey)  { console.error("::error::Missing API key for OpenAI-compatible provider");  process.exit(1); }
+                cfg = {
+                  version: 1,
+                  currentProvider: "default",
+                  providers: [
+                    {
+                      id: "default",
+                      provider: "openai-compatible",
+                      baseUrl,
+                      apiKeyEnv: "OPENAI_API_KEY",
+                      model
+                    }
+                  ],
+                  autoApproval
+                };
+              }
 
-            cat > ~/.kilocode/cli/config.json <<EOF
-{
-  "version": 1,
-  "currentProvider": "default",
-  "providers": [
-    {
-      "id": "default",
-      "provider": "openai-compatible",
-      "baseUrl": "${OPENAI_BASE_URL}",
-      "apiKeyEnv": "OPENAI_API_KEY",
-      "model": "${MODEL}"
-    }
-  ],
-  "autoApproval": {
-    "enabled": true,
-    "read":  { "enabled": true, "outside": false },
-    "write": { "enabled": true, "outside": false, "protected": false },
-    "execute": {
-      "enabled": true,
-      "allowed": ["git", "node", "npm", "pnpm"],
-      "denied": ["sudo", "rm -rf", "dd", "mkfs", "shutdown", "reboot", "git push --force"]
-    },
-    "browser": { "enabled": false },
-    "mcp": { "enabled": true },
-    "mode": { "enabled": true },
-    "subtasks": { "enabled": true },
-    "question": { "enabled": false, "timeout": 60 },
-    "retry": { "enabled": true, "delay": 10 },
-    "todo": { "enabled": true }
-  }
-}
-EOF
-          fi
+              if (!Array.isArray(cfg.providers)) {
+                console.error("::error::providers must be an array");
+                process.exit(1);
+              }
+              if (!cfg.providers.find(p => p.id === cfg.currentProvider)) {
+                console.error("::error::currentProvider must match a providers[i].id");
+                process.exit(1);
+              }
 
-          echo "=== ~/.kilocode/cli/config.json ==="
-          cat ~/.kilocode/cli/config.json
-          echo "=================================="
+              fs.mkdirSync(require("path").dirname(path), { recursive: true });
+              fs.writeFileSync(path, JSON.stringify(cfg, null, 2));
+              console.log("Wrote config:", path);
+            ' "$path"
+          }
+
+          # Write to both locations the CLI might read
+          write_cfg "${HOME}/.kilocode/config.json"
+          write_cfg "${HOME}/.kilocode/cli/config.json"
+
+          # Show final configs without secrets
+          echo "::group::Kilocode config summary"
+          node -e '
+            const fs = require("fs");
+            for (const p of ["~/.kilocode/config.json","~/.kilocode/cli/config.json"]) {
+              const full = p.replace("~", process.env.HOME);
+              if (fs.existsSync(full)) {
+                const j = JSON.parse(fs.readFileSync(full,"utf8"));
+                const red = JSON.stringify(j, (k,v) =>
+                  (k.toLowerCase().includes("token")||k.toLowerCase().includes("key")) ? "***" : v, 2);
+                console.log(full + ":\n" + red + "\n");
+              }
+            }
+          '
+          echo "::endgroup::"
+
+          # Export OpenAI envs for run step (no-ops for kilocode_hosted)
+          if [ -n "${OPENAI_BASE_URL:-}" ]; then echo "OPENAI_BASE_URL=${OPENAI_BASE_URL}" >> "$GITHUB_ENV"; fi
+          if [ -n "${OPENAI_API_KEY:-}"  ]; then echo "OPENAI_API_KEY=${OPENAI_API_KEY}"   >> "$GITHUB_ENV"; fi
+
+        env:
+          PROVIDER: ${{ env.PROVIDER }}
+          MODEL: ${{ env.MODEL }}
 
       - name: Mark repo as safe for Git
         working-directory: ${{ env.WORKDIR }}
@@ -204,31 +235,37 @@ EOF
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin --prune
           if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            echo "Using existing branch: ${BRANCH}"
             git checkout "${BRANCH}"
             git pull --ff-only origin "${BRANCH}"
           else
+            echo "Creating branch from origin/main: ${BRANCH}"
             git checkout -B "${BRANCH}" origin/main || git checkout -B "${BRANCH}"
           fi
 
       - name: Verify prompt file exists
         working-directory: ${{ env.WORKDIR }}
         run: |
+          set -euo pipefail
           test -f "${PROMPT_FILE}" || { echo "::error::Prompt not found: ${PROMPT_FILE}"; exit 1; }
+          if [ ! -s "${PROMPT_FILE}" ]; then
+            echo "::error::Prompt file is empty: ${PROMPT_FILE}"; exit 1
+          fi
 
       - name: Set non-interactive env flags
         run: |
-          echo "CI=true" >> $GITHUB_ENV
-          echo "KILOCODE_CI=true" >> $GITHUB_ENV
-          echo "NO_COLOR=1" >> $GITHUB_ENV
-          echo "TERM=xterm" >> $GITHUB_ENV
-          echo "DEBUG=kilocode:*" >> $GITHUB_ENV
-          echo "KILOCODE_DEBUG=1" >> $GITHUB_ENV
+          set -euo pipefail
+          echo "CI=true" >> "$GITHUB_ENV"
+          echo "KILOCODE_CI=true" >> "$GITHUB_ENV"
+          echo "NO_COLOR=1" >> "$GITHUB_ENV"
+          echo "TERM=xterm" >> "$GITHUB_ENV"
+          echo "DEBUG=kilocode:*" >> "$GITHUB_ENV"
+          echo "KILOCODE_DEBUG=1" >> "$GITHUB_ENV"
 
-      # Quick smoke test to ensure config is parseable before long run
       - name: Kilocode preflight (ask mode, 60s)
         working-directory: ${{ env.WORKDIR }}
         shell: bash
@@ -249,16 +286,21 @@ EOF
           {
             echo "[mode] Use ${MODE}.";
             cat "${PROMPT_FILE}";
-          } | kilocode --auto --timeout "${KILO_TIMEOUT}" --workspace "${PWD}" --mode "${MODE}" || rc=$?
+          } | kilocode --auto --timeout "${KILO_TIMEOUT}" --workspace "${PWD}" --mode "${MODE}" 2>&1 | tee kilocode.log || rc=$?
 
           if [ "${rc:-0}" = "124" ]; then
             echo "::error::Kilocode timed out after ${KILO_TIMEOUT}s"; exit 124
           elif [ -n "${rc:-}" ] && [ "${rc}" != "0" ]; then
-            echo "::error::Kilocode exited with error code ${rc}"; exit "${rc}"
+            echo "::group::Kilocode last 200 log lines"
+            tail -n 200 kilocode.log || true
+            echo "::endgroup::"
+            echo "::error::Kilocode exited with error code ${rc}"
+            exit "${rc}"
           fi
 
       - name: Commit & push changes (if any)
         working-directory: ${{ env.WORKDIR }}
+        shell: bash
         run: |
           set -euo pipefail
           if ! git diff --no-ext-diff --quiet; then
