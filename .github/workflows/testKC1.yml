@@ -1,29 +1,134 @@
-name: testKC1
+name: KiloCode - headless demo
 
 on:
   workflow_dispatch:
 
 jobs:
-  kilocode-job:
+  demo:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install Kilo Code CLI
-        run: npm install -g @kilocode/cli
+    permissions:
+      contents: write
 
-      - name: Fix code with Kilo Code
-        env:
-          KILOCODE_API_KEY: ${{ secrets.KILOCODE_API_KEY }}
+    env:
+      KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Basics
         run: |
-          # The agent works directly on the code, so you'll need to handle Git operations after it finishes.
-          git config user.email "kilocode@users.noreply.github.com"
-          git config user.name "Kilo Code"
-          echo "Write a short article in markdown file on Price to Earnings Ratio and store in root of the repository." | kilocode --auto
-          
-          # Stage, commit, and push the changes made by Kilo Code
-          git add .
-          git commit -m "Kilo Code: Added a test article." || echo "No changes to commit"
-          git push
+          set -euxo pipefail
+          node -v
+          npm -v
+
+      - name: Install KiloCode CLI
+        run: |
+          set -euxo pipefail
+          npm install -g @kilocode/cli
+          kilocode --version || true
+
+      - name: Configure KiloCode (non-interactive)
+        run: |
+          set -euxo pipefail
+          mkdir -p ~/.kilocode/cli ~/.kilocode
+          cat > ~/.kilocode/cli/config.json <<'JSON'
+          {
+            "version": 1,
+            "currentProvider": "default",
+            "providers": [
+              {
+                "id": "default",
+                "provider": "kilocode",
+                "kilocodeToken": "__KILOCODE_TOKEN__",
+                "kilocodeModel": "openai/gpt-4o-mini"
+              }
+            ],
+            "autoApproval": {
+              "enabled": true,
+              "read":    { "enabled": true,  "outside": false },
+              "write":   { "enabled": false, "outside": false, "protected": false },
+              "execute": { "enabled": false, "allowed": [], "denied": [] },
+              "question": { "enabled": false, "timeout": 30 },
+              "retry":    { "enabled": true,  "delay": 5 }
+            }
+          }
+          JSON
+          cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json ~/.kilocode/config.json
+          jq '(.providers[0].kilocodeToken)="***REDACTED***"' ~/.kilocode/cli/config.json
+
+      - name: Verify profile & balance (Bearer)
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -y && sudo apt-get install -y jq
+          curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | jq .
+          curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | jq .
+
+      - name: Ask KiloCode to PRINT file content (no tools)
+        env:
+          DEBUG: "kilocode:*,axios:*"
+          NO_COLOR: "1"
+        run: |
+          set -euxo pipefail
+          # We’ll substitute the timestamp ourselves to keep the agent tool-free.
+          UTC_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          cat > prompt.txt <<'PROMPT'
+          You are running HEADLESS in CI, so do NOT use any file-writing or execution tools.
+          Instead, PRINT ONLY the exact contents for the file KILOCODE_DEMO.md between the markers:
+          <<<BEGIN>>>
+          ...file content...
+          <<<END>>>
+
+          Requirements for the content:
+          - Markdown H1: "KiloCode CLI Demo"
+          - Include the placeholder token {{UTC_NOW}} on its own line for timestamp
+          - Add a short note line: "Hello from GitHub Actions."
+          - Keep output strictly idempotent and deterministic
+          - No extra commentary before/after the markers
+          PROMPT
+
+          # Run KiloCode non-interactively, capture all output
+          set +e
+          stdbuf -oL -eL kilocode --auto --timeout 300 < prompt.txt 2>&1 | tee kilocode.log
+          EXIT=$?
+          set -e
+          echo "kilocode exit code: $EXIT"  # may still be 1 even if output was produced; we proceed if markers exist
+
+          # Extract the content between markers
+          awk '/^<<<BEGIN>>>/{flag=1;next}/^<<<END>>>/{flag=0}flag' kilocode.log > KILOCODE_DEMO.template || true
+
+          if [ ! -s KILOCODE_DEMO.template ]; then
+            echo "::error::KiloCode did not return delimited content. See kilocode.log"
+            tail -n 120 kilocode.log || true
+            exit 1
+          fi
+
+          # Substitute the timestamp placeholder and write the final file
+          sed "s/{{UTC_NOW}}/${UTC_NOW}/g" KILOCODE_DEMO.template > KILOCODE_DEMO.md
+
+          echo "Preview:"
+          head -n 50 KILOCODE_DEMO.md
+
+      - name: Commit & push if changed
+        run: |
+          set -euxo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add KILOCODE_DEMO.md
+            git commit -m "chore: add/update KILOCODE_DEMO.md via KiloCode (headless demo)"
+            git push
+          else
+            echo "No changes to commit."
+          fi
+
+      - name: Attach KiloCode logs (artifact)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kilocode-log
+          path: kilocode.log
