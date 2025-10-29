@@ -10,9 +10,10 @@ jobs:
       contents: write
 
     env:
-      # Optional: set these repo secrets to "true" to get extra runner logs
+      # Optional: set these repo secrets to "true" for extra runner logs
       ACTIONS_STEP_DEBUG: ${{ secrets.ACTIONS_STEP_DEBUG }}
       ACTIONS_RUNNER_DEBUG: ${{ secrets.ACTIONS_RUNNER_DEBUG }}
+      # KiloCode API key stored as a repo secret
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
 
     steps:
@@ -72,6 +73,7 @@ jobs:
             }
           }
           JSON
+
           # mirror to legacy path as well
           cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
 
@@ -92,12 +94,32 @@ jobs:
           KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
         run: |
           set -euxo pipefail
-          sudo apt-get update -y && sudo apt-get install -y jq
-          curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | tee /tmp/kc_profile.json | jq .
-          echo "---- balance ----"
-          curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | tee /tmp/kc_balance.json | jq .
 
-          # Fail fast if balance looks empty or plan missing
+          # quick sanity: token present (don’t print it)
+          if [ -z "${KILOCODE_TOKEN:-}" ]; then
+            echo "::error::KILOCODE_API_KEY is empty/unavailable to this workflow."
+            exit 1
+          fi
+          echo "KILOCODE_API_KEY length: ${#KILOCODE_TOKEN}"
+
+          sudo apt-get update -y && sudo apt-get install -y jq
+
+          # proper Bearer authorization
+          curl -fsS -i -H "Authorization: Bearer ${KILOCODE_TOKEN}" \
+            https://api.kilocode.ai/api/profile \
+            | tee /tmp/kc_profile.raw
+
+          # strip headers & pretty-print JSON (fails if non-JSON)
+          awk 'f{print} /^$/{f=1}' /tmp/kc_profile.raw | tee /tmp/kc_profile.json | jq .
+
+          echo "---- balance ----"
+          curl -fsS -i -H "Authorization: Bearer ${KILOCODE_TOKEN}" \
+            https://api.kilocode.ai/api/profile/balance \
+            | tee /tmp/kc_balance.raw
+
+          awk 'f{print} /^$/{f=1}' /tmp/kc_balance.raw | tee /tmp/kc_balance.json | jq .
+
+          # warn if balance looks empty
           BAL=$(jq -r '.balance // .credits // empty' /tmp/kc_balance.json || true)
           if [ -z "${BAL}" ] || [ "${BAL}" = "0" ] || [ "${BAL}" = "0.0" ]; then
             echo "::warning::KiloCode balance appears empty or unavailable (${BAL:-unset}). The CLI may exit 1."
@@ -105,9 +127,10 @@ jobs:
 
       - name: Run KiloCode with FULL tracing
         env:
+          # Common toggles some CLIs honor; harmless if ignored:
           FORCE_COLOR: "0"
           NO_COLOR: "1"
-          DEBUG: "*"
+          DEBUG: "kilocode:*,axios:*"
         run: |
           set -euxo pipefail
 
