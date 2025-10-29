@@ -11,8 +11,8 @@ jobs:
 
     env:
       # Optional: set these repo secrets to "true" for extra runner logs
-      ACTIONS_STEP_DEBUG: ${{ secrets.ACTIONS_STEP_DEBUG }}
-      ACTIONS_RUNNER_DEBUG: ${{ secrets.ACTIONS_RUNNER_DEBUG }}
+      ACTIONS_STEP_DEBUG: true
+      ACTIONS_RUNNER_DEBUG: true
       # KiloCode API key stored as a repo secret
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
 
