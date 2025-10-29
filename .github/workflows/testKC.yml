@@ -56,7 +56,7 @@ jobs:
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "__KILOCODE_TOKEN__",
-                "kilocodeModel": "xai/grok-code-fast-1"
+                "kilocodeModel": "openai/gpt-4o-mini"
               }
             ],
             "autoApproval": {
@@ -73,7 +73,6 @@ jobs:
             }
           }
           JSON
-
           # mirror to legacy path as well
           cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
 
@@ -88,6 +87,21 @@ jobs:
           # redact and print a preview
           awk '{gsub(/"kilocodeToken": *".*"/,"\"kilocodeToken\": \"***REDACTED***\""); print }' \
             ~/.kilocode/cli/config.json
+
+      - name: Check KiloCode profile & balance
+        env:
+          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+          run: |
+            set -euxo pipefail
+            curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | tee /tmp/kc_profile.json | jq .
+            echo "---- balance ----"
+            curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | tee /tmp/kc_balance.json | jq .
+        
+            # Fail fast if balance looks empty or plan missing (adjust fields if your API returns different names)
+            BAL=$(jq -r '.balance // .credits // empty' /tmp/kc_balance.json || true)
+            if [ -z "${BAL}" ] || [ "${BAL}" = "0" ] || [ "${BAL}" = "0.0" ]; then
+              echo "::warning::KiloCode balance appears empty or unavailable (${BAL:-unset}). The CLI will likely exit 1."
+            fi
 
       - name: Run KiloCode with FULL tracing
         env:
