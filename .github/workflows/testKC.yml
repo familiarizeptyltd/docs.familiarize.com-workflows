@@ -1,4 +1,4 @@
-name: KiloCode – debug run
+name: KiloCode - debug run
 
 on:
   workflow_dispatch:
@@ -10,10 +10,9 @@ jobs:
       contents: write
 
     env:
-      # If you enable these in repo "Secrets and variables" as Repository secrets,
-      # the runner will print extra diagnostics.
-      ACTIONS_STEP_DEBUG: ${{ secrets.ACTIONS_STEP_DEBUG }}     # set to true
-      ACTIONS_RUNNER_DEBUG: ${{ secrets.ACTIONS_RUNNER_DEBUG }} # set to true
+      # Optional: set these repo secrets to "true" to get extra runner logs
+      ACTIONS_STEP_DEBUG: ${{ secrets.ACTIONS_STEP_DEBUG }}
+      ACTIONS_RUNNER_DEBUG: ${{ secrets.ACTIONS_RUNNER_DEBUG }}
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
 
     steps:
@@ -91,21 +90,21 @@ jobs:
       - name: Check KiloCode profile & balance
         env:
           KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
-          run: |
-            set -euxo pipefail
-            curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | tee /tmp/kc_profile.json | jq .
-            echo "---- balance ----"
-            curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | tee /tmp/kc_balance.json | jq .
-        
-            # Fail fast if balance looks empty or plan missing (adjust fields if your API returns different names)
-            BAL=$(jq -r '.balance // .credits // empty' /tmp/kc_balance.json || true)
-            if [ -z "${BAL}" ] || [ "${BAL}" = "0" ] || [ "${BAL}" = "0.0" ]; then
-              echo "::warning::KiloCode balance appears empty or unavailable (${BAL:-unset}). The CLI will likely exit 1."
-            fi
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -y && sudo apt-get install -y jq
+          curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | tee /tmp/kc_profile.json | jq .
+          echo "---- balance ----"
+          curl -fsSL -H "Authorization: ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | tee /tmp/kc_balance.json | jq .
+
+          # Fail fast if balance looks empty or plan missing
+          BAL=$(jq -r '.balance // .credits // empty' /tmp/kc_balance.json || true)
+          if [ -z "${BAL}" ] || [ "${BAL}" = "0" ] || [ "${BAL}" = "0.0" ]; then
+            echo "::warning::KiloCode balance appears empty or unavailable (${BAL:-unset}). The CLI may exit 1."
+          fi
 
       - name: Run KiloCode with FULL tracing
         env:
-          # Common toggles some CLIs honor; harmless if ignored:
           FORCE_COLOR: "0"
           NO_COLOR: "1"
           DEBUG: "*"
@@ -120,9 +119,6 @@ jobs:
           PROMPT
 
           # Run and capture ALL output without losing exit codes in the pipe.
-          #  - 'stdbuf' disables stdio buffering so logs stream line-by-line.
-          #  - 'tee' lets us see output live AND save it for postmortem.
-          #  - We capture the exit code explicitly.
           set +e
           stdbuf -oL -eL kilocode --auto --timeout 300 < prompt.txt 2>&1 | tee kilocode.log
           EXIT=$?
