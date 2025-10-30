@@ -58,6 +58,7 @@ jobs:
           JSON
           cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
           sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json ~/.kilocode/config.json
+          sudo apt-get update -y >/dev/null && sudo apt-get install -y jq >/dev/null
           jq '(.providers[0].kilocodeToken)="***REDACTED***"' ~/.kilocode/cli/config.json
 
       - name: Verify profile & balance (Bearer)
@@ -67,15 +68,20 @@ jobs:
           curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | jq .
           curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | jq .
 
-      - name: Ask KiloCode to PRINT file content (no tools)
+      - name: Ask KiloCode to PRINT file content (headless via PTY)
         env:
-          DEBUG: "kilocode:*,axios:*"
+          TERM: xterm-256color
+          CI: "true"
           NO_COLOR: "1"
+          # If the CLI honors these, they help; harmless otherwise:
+          KILOCODE_HEADLESS: "1"
+          KILOCODE_NONINTERACTIVE: "1"
+          DEBUG: "kilocode:*,axios:*"
         run: |
           set -euxo pipefail
-          # We’ll substitute the timestamp ourselves to keep the agent tool-free.
           UTC_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+          # Build the prompt as a single line (CLI expects an argument in CI)
           cat > prompt.txt <<'PROMPT'
           You are running HEADLESS in CI, so do NOT use any file-writing or execution tools.
           Instead, PRINT ONLY the exact contents for the file KILOCODE_DEMO.md between the markers:
@@ -91,23 +97,25 @@ jobs:
           - No extra commentary before/after the markers
           PROMPT
 
-          # Run KiloCode non-interactively, capture all output
+          PROMPT_ARG="$(tr '\n' ' ' < prompt.txt)"
+
+          # Allocate a PTY and pass the prompt as an argument
           set +e
-          stdbuf -oL -eL kilocode --auto --timeout 300 < prompt.txt 2>&1 | tee kilocode.log
+          script -qfec "kilocode --auto \"${PROMPT_ARG}\" --timeout 300" /dev/null 2>&1 | tee kilocode.log
           EXIT=$?
           set -e
-          echo "kilocode exit code: $EXIT"  # may still be 1 even if output was produced; we proceed if markers exist
+          echo "kilocode exit code: $EXIT"
 
           # Extract the content between markers
           awk '/^<<<BEGIN>>>/{flag=1;next}/^<<<END>>>/{flag=0}flag' kilocode.log > KILOCODE_DEMO.template || true
 
           if [ ! -s KILOCODE_DEMO.template ]; then
-            echo "::error::KiloCode did not return delimited content. See kilocode.log"
-            tail -n 120 kilocode.log || true
+            echo "::error::KiloCode did not return delimited content. See kilocode.log tail:"
+            tail -n 200 kilocode.log || true
             exit 1
           fi
 
-          # Substitute the timestamp placeholder and write the final file
+          # Substitute timestamp and write the final file
           sed "s/{{UTC_NOW}}/${UTC_NOW}/g" KILOCODE_DEMO.template > KILOCODE_DEMO.md
 
           echo "Preview:"
