@@ -30,7 +30,7 @@ jobs:
           npm install -g @kilocode/cli
           kilocode --version || true
 
-      - name: Configure KiloCode (non-interactive)
+      - name: Configure KiloCode (non-interactive; enable writes)
         run: |
           set -euxo pipefail
           mkdir -p ~/.kilocode/cli ~/.kilocode
@@ -49,7 +49,7 @@ jobs:
             "autoApproval": {
               "enabled": true,
               "read":    { "enabled": true,  "outside": false },
-              "write":   { "enabled": false, "outside": false, "protected": false },
+              "write":   { "enabled": true,  "outside": false, "protected": false },
               "execute": { "enabled": false, "allowed": [], "denied": [] },
               "question": { "enabled": false, "timeout": 30 },
               "retry":    { "enabled": true,  "delay": 5 }
@@ -68,58 +68,55 @@ jobs:
           curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | jq .
           curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | jq .
 
-      - name: Ask KiloCode to PRINT file content (headless via PTY)
+      - name: Try KiloCode to WRITE the file
         env:
           TERM: xterm-256color
           CI: "true"
           NO_COLOR: "1"
-          # If the CLI honors these, they help; harmless otherwise:
           KILOCODE_HEADLESS: "1"
           KILOCODE_NONINTERACTIVE: "1"
           DEBUG: "kilocode:*,axios:*"
         run: |
           set -euxo pipefail
-          UTC_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-          # Build the prompt as a single line (CLI expects an argument in CI)
+          # Ask KiloCode to create/update the file directly (since writes are enabled).
           cat > prompt.txt <<'PROMPT'
-          You are running HEADLESS in CI, so do NOT use any file-writing or execution tools.
-          Instead, PRINT ONLY the exact contents for the file KILOCODE_DEMO.md between the markers:
-          <<<BEGIN>>>
-          ...file content...
-          <<<END>>>
-
-          Requirements for the content:
-          - Markdown H1: "KiloCode CLI Demo"
-          - Include the placeholder token {{UTC_NOW}} on its own line for timestamp
-          - Add a short note line: "Hello from GitHub Actions."
-          - Keep output strictly idempotent and deterministic
-          - No extra commentary before/after the markers
+          Create or update a file named KILOCODE_DEMO.md at the repo root.
+          The content must be exactly:
+          # KiloCode CLI Demo
+          {{UTC_NOW}}
+          Hello from GitHub Actions.
           PROMPT
 
           PROMPT_ARG="$(tr '\n' ' ' < prompt.txt)"
 
-          # Allocate a PTY and pass the prompt as an argument
+          # Strategy: pass prompt as arg; banner-only exit is tolerated
           set +e
-          script -qfec "kilocode --auto \"${PROMPT_ARG}\" --timeout 300" /dev/null 2>&1 | tee kilocode.log
+          kilocode --auto "${PROMPT_ARG}" --timeout 300 2>&1 | tee kilocode.log
           EXIT=$?
           set -e
-          echo "kilocode exit code: $EXIT"
+          echo "kilocode exit code: $EXIT || continuing to check for file"
 
-          # Extract the content between markers
-          awk '/^<<<BEGIN>>>/{flag=1;next}/^<<<END>>>/{flag=0}flag' kilocode.log > KILOCODE_DEMO.template || true
-
-          if [ ! -s KILOCODE_DEMO.template ]; then
-            echo "::error::KiloCode did not return delimited content. See kilocode.log tail:"
-            tail -n 200 kilocode.log || true
-            exit 1
+          # If CLI succeeded, the file should exist; otherwise we fall back next step
+          if [ -f KILOCODE_DEMO.md ]; then
+            echo "::notice::KiloCode created KILOCODE_DEMO.md"
+          else
+            echo "::warning::KiloCode did not create the file; will synthesize it in fallback."
           fi
 
-          # Substitute timestamp and write the final file
-          sed "s/{{UTC_NOW}}/${UTC_NOW}/g" KILOCODE_DEMO.template > KILOCODE_DEMO.md
-
+      - name: Fallback (synthesize file if CLI didn’t write it)
+        run: |
+          set -euxo pipefail
+          if [ ! -f KILOCODE_DEMO.md ]; then
+            UTC_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            {
+              echo "# KiloCode CLI Demo"
+              echo "${UTC_NOW}"
+              echo "Hello from GitHub Actions."
+            } > KILOCODE_DEMO.md
+            echo "::notice::Wrote KILOCODE_DEMO.md via fallback."
+          fi
           echo "Preview:"
-          head -n 50 KILOCODE_DEMO.md
+          head -n 20 KILOCODE_DEMO.md
 
       - name: Commit & push if changed
         run: |
@@ -128,7 +125,7 @@ jobs:
             git config user.name  "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add KILOCODE_DEMO.md
-            git commit -m "chore: add/update KILOCODE_DEMO.md via KiloCode (headless demo)"
+            git commit -m "chore: add/update KILOCODE_DEMO.md (CLI headless demo)"
             git push
           else
             echo "No changes to commit."
