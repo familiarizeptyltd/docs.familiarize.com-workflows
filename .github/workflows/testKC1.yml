@@ -68,40 +68,55 @@ jobs:
           curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | jq .
           curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | jq .
 
-      - name: Try KiloCode to WRITE the file
-        env:
-          TERM: xterm-256color
-          CI: "true"
-          NO_COLOR: "1"
-          KILOCODE_HEADLESS: "1"
-          KILOCODE_NONINTERACTIVE: "1"
-          DEBUG: "kilocode:*,axios:*"
-        run: |
-          set -euxo pipefail
-          # Ask KiloCode to create/update the file directly (since writes are enabled).
-          cat > prompt.txt <<'PROMPT'
-          Create or update a file named KILOCODE_DEMO.md at the repo root.
-          The content must be exactly:
-          # KiloCode CLI Demo
-          {{UTC_NOW}}
-          Hello from GitHub Actions.
-          PROMPT
-
-          PROMPT_ARG="$(tr '\n' ' ' < prompt.txt)"
-
-          # Strategy: pass prompt as arg; banner-only exit is tolerated
-          set +e
-          kilocode --auto "${PROMPT_ARG}" --timeout 300 2>&1 | tee kilocode.log
-          EXIT=$?
-          set -e
-          echo "kilocode exit code: $EXIT || continuing to check for file"
-
-          # If CLI succeeded, the file should exist; otherwise we fall back next step
-          if [ -f KILOCODE_DEMO.md ]; then
-            echo "::notice::KiloCode created KILOCODE_DEMO.md"
-          else
-            echo "::warning::KiloCode did not create the file; will synthesize it in fallback."
-          fi
+            - name: Try KiloCode to WRITE the file (experiments)
+              env:
+                CI: "true"
+                TERM: "xterm-256color"
+                NO_COLOR: "1"
+                DEBUG: "kilocode:*,axios:*"
+                # Some CLIs require explicit opt-ins in CI; if unsupported, these are harmless.
+                KILOCODE_HEADLESS: "0"
+                KILOCODE_NONINTERACTIVE: "1"
+                KILOCODE_ALLOW_WRITES: "1"
+                KILOCODE_ALLOW_TOOLS: "1"
+              run: |
+                set -euxo pipefail
+      
+                cat > prompt.txt <<'PROMPT'
+                Create or update a file named KILOCODE_DEMO.md at the repo root.
+                The content must be exactly:
+                # KiloCode CLI Demo
+                {{UTC_NOW}}
+                Hello from GitHub Actions.
+                PROMPT
+      
+                PROMPT_ARG="$(tr '\n' ' ' < prompt.txt)"
+      
+                # Try 3 strategies in order; tolerate non-zero exits but check for the file after each.
+                try_kc () {
+                  set +e
+                  bash -lc "$1" 2>&1 | tee -a kilocode.log
+                  rc=${PIPESTATUS[0]}
+                  set -e
+                  echo "cmd exit=$rc"
+                  [ -f KILOCODE_DEMO.md ] && return 0 || return 1
+                }
+      
+                # A: plain arg
+                try_kc "kilocode --auto \"${PROMPT_ARG}\" --timeout 300" \
+                  || \
+                # B: with a pseudo-tty
+                try_kc "script -qfec 'kilocode --auto \"${PROMPT_ARG}\" --timeout 300' /dev/null" \
+                  || \
+                # C: stdin (some CLIs need a dash or just read from stdin)
+                try_kc "printf '%s' \"${PROMPT_ARG}\" | kilocode --auto --timeout 300" \
+                  || true
+      
+                if [ -f KILOCODE_DEMO.md ]; then
+                  echo "::notice::KiloCode created the file."
+                else
+                  echo "::warning::KiloCode still didn’t write in CI; fallback step will synthesize it."
+                fi
 
       - name: Fallback (synthesize file if CLI didn’t write it)
         run: |
