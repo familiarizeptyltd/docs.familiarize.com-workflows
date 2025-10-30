@@ -134,15 +134,23 @@ jobs:
       - name: Commit & push if changed
         run: |
           set -euxo pipefail
-          if [ -n "$(git status --porcelain)" ]; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add KILOCODE_DEMO.md
-            git commit -m "chore: add/update KILOCODE_DEMO.md (CLI headless demo)"
-            git push
-          else
-            echo "No changes to commit."
+          # Exit early if the file doesn't exist
+          if [ ! -f KILOCODE_DEMO.md ]; then
+            echo "KILOCODE_DEMO.md not found; nothing to commit."
+            exit 0
           fi
+
+          # Check if KILOCODE_DEMO.md has changes
+          if git diff --quiet --exit-code -- KILOCODE_DEMO.md; then
+            echo "No changes to KILOCODE_DEMO.md."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -- KILOCODE_DEMO.md
+          git commit -m "chore: add/update KILOCODE_DEMO.md (CLI headless demo)"
+          git push
 
       - name: Attach KiloCode logs (artifact)
         if: ${{ always() }}
