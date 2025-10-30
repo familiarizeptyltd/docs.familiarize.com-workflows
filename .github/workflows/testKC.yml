@@ -1,19 +1,15 @@
-name: KiloCode - debug run
+name: KiloCode - headless demo
 
 on:
   workflow_dispatch:
 
 jobs:
-  debug-kilocode:
+  demo:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     env:
-      # Optional: set these repo secrets to "true" for extra runner logs
-      ACTIONS_STEP_DEBUG: true
-      ACTIONS_RUNNER_DEBUG: true
-      # KiloCode API key stored as a repo secret
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
 
     steps:
@@ -22,31 +18,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Print runner basics
+      - name: Basics
         run: |
-          uname -a
+          set -euxo pipefail
           node -v
           npm -v
-          echo "SHELL=$SHELL"
-          env | sort | sed -e 's/\(KILOCODE_TOKEN=\).*/\1***REDACTED***/'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: Install KiloCode CLI
         run: |
           set -euxo pipefail
           npm install -g @kilocode/cli
-          which kilocode
           kilocode --version || true
 
-      - name: Write KiloCode config (both paths) + validate JSON
+      - name: Configure KiloCode (non-interactive; enable writes)
         run: |
           set -euxo pipefail
-          mkdir -p ~/.kilocode/cli
-          mkdir -p ~/.kilocode
+          mkdir -p ~/.kilocode/cli ~/.kilocode
           cat > ~/.kilocode/cli/config.json <<'JSON'
           {
             "version": 1,
@@ -63,114 +50,111 @@ jobs:
               "enabled": true,
               "read":    { "enabled": true,  "outside": false },
               "write":   { "enabled": true,  "outside": false, "protected": false },
-              "execute": {
-                "enabled": true,
-                "allowed": ["git", "node", "npm", "pnpm"],
-                "denied":  ["sudo", "rm -rf", "git push --force"]
-              },
-              "question": { "enabled": false, "timeout": 60 },
-              "retry":    { "enabled": true,  "delay": 10 }
+              "execute": { "enabled": false, "allowed": [], "denied": [] },
+              "question": { "enabled": false, "timeout": 30 },
+              "retry":    { "enabled": true,  "delay": 5 }
             }
           }
           JSON
-
-          # mirror to legacy path as well
           cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
+          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json ~/.kilocode/config.json
+          sudo apt-get update -y >/dev/null && sudo apt-get install -y jq >/dev/null
+          jq '(.providers[0].kilocodeToken)="***REDACTED***"' ~/.kilocode/cli/config.json
 
-          # inject token safely
-          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json
-          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/config.json
-
-          # show where config is and that it’s valid JSON
-          ls -la ~/.kilocode ~/.kilocode/cli
-          sudo apt-get update -y && sudo apt-get install -y jq
-          jq '.providers[0].provider, (.providers[0] | del(.kilocodeToken))' ~/.kilocode/cli/config.json
-          # redact and print a preview
-          awk '{gsub(/"kilocodeToken": *".*"/,"\"kilocodeToken\": \"***REDACTED***\""); print }' \
-            ~/.kilocode/cli/config.json
-
-      - name: Check KiloCode profile & balance
-        env:
-          KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+      - name: Verify profile & balance (Bearer)
         run: |
           set -euxo pipefail
-
-          # quick sanity: token present (don’t print it)
-          if [ -z "${KILOCODE_TOKEN:-}" ]; then
-            echo "::error::KILOCODE_API_KEY is empty/unavailable to this workflow."
-            exit 1
-          fi
-          echo "KILOCODE_API_KEY length: ${#KILOCODE_TOKEN}"
-
           sudo apt-get update -y && sudo apt-get install -y jq
+          curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | jq .
+          curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | jq .
 
-          # proper Bearer authorization
-          curl -fsS -i -H "Authorization: Bearer ${KILOCODE_TOKEN}" \
-            https://api.kilocode.ai/api/profile \
-            | tee /tmp/kc_profile.raw
-
-          # strip headers & pretty-print JSON (fails if non-JSON)
-          awk 'f{print} /^$/{f=1}' /tmp/kc_profile.raw | tee /tmp/kc_profile.json | jq .
-
-          echo "---- balance ----"
-          curl -fsS -i -H "Authorization: Bearer ${KILOCODE_TOKEN}" \
-            https://api.kilocode.ai/api/profile/balance \
-            | tee /tmp/kc_balance.raw
-
-          awk 'f{print} /^$/{f=1}' /tmp/kc_balance.raw | tee /tmp/kc_balance.json | jq .
-
-          # warn if balance looks empty
-          BAL=$(jq -r '.balance // .credits // empty' /tmp/kc_balance.json || true)
-          if [ -z "${BAL}" ] || [ "${BAL}" = "0" ] || [ "${BAL}" = "0.0" ]; then
-            echo "::warning::KiloCode balance appears empty or unavailable (${BAL:-unset}). The CLI may exit 1."
-          fi
-
-      - name: Run KiloCode with FULL tracing
+      - name: Try KiloCode to WRITE the file (experiments)
         env:
-          # Common toggles some CLIs honor; harmless if ignored:
-          FORCE_COLOR: "0"
+          CI: "true"
+          TERM: "xterm-256color"
           NO_COLOR: "1"
           DEBUG: "kilocode:*,axios:*"
+          KILOCODE_HEADLESS: "0"
+          KILOCODE_NONINTERACTIVE: "1"
+          KILOCODE_ALLOW_WRITES: "1"
+          KILOCODE_ALLOW_TOOLS: "1"
         run: |
           set -euxo pipefail
 
-          # Make the prompt a here-doc to avoid accidental shell quoting issues.
           cat > prompt.txt <<'PROMPT'
           Create or update a file named KILOCODE_DEMO.md at the repo root.
-          Add a markdown H1 'KiloCode CLI Demo', today's UTC timestamp,
-          and a short note: 'Hello from GitHub Actions.' Keep it idempotent.
+          The content must be exactly:
+          # KiloCode CLI Demo
+          {{UTC_NOW}}
+          Hello from GitHub Actions.
           PROMPT
 
-          # Run and capture ALL output without losing exit codes in the pipe.
-          set +e
-          stdbuf -oL -eL kilocode --auto --timeout 300 < prompt.txt 2>&1 | tee kilocode.log
-          EXIT=$?
-          set -e
+          PROMPT_ARG="$(tr '\n' ' ' < prompt.txt)"
 
-          echo "----- kilocode exit code: $EXIT -----"
-          if [ $EXIT -ne 0 ]; then
-            echo "::error::KiloCode exited with code $EXIT"
-          fi
+          try_kc () {
+            set +e
+            bash -lc "$1" 2>&1 | tee -a kilocode.log
+            rc=${PIPESTATUS[0]}
+            set -e
+            echo "cmd exit=$rc"
+            [ -f KILOCODE_DEMO.md ] && return 0 || return 1
+          }
 
-      - name: Show log tail (if failed)
-        if: ${{ failure() }}
-        run: |
-          echo "=== Last 200 lines of kilocode.log ==="
-          tail -n 200 kilocode.log || true
+          # A: plain arg
+          try_kc "kilocode --auto \"${PROMPT_ARG}\" --timeout 300" \
+            || \
+          # B: with a pseudo-tty
+          try_kc "script -qfec 'kilocode --auto \"${PROMPT_ARG}\" --timeout 300' /dev/null" \
+            || \
+          # C: stdin
+          try_kc "printf '%s' \"${PROMPT_ARG}\" | kilocode --auto --timeout 300" \
+            || true
 
-      - name: Show repo diffs (whether or not it failed)
-        run: |
-          git status --porcelain
-          git diff -- KILOCODE_DEMO.md || true
-
-      - name: Commit and push changes (if any)
-        run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "chore: update via KiloCode CLI (debug run)"
-            git push
+          if [ -f KILOCODE_DEMO.md ]; then
+            echo "::notice::KiloCode created the file."
           else
-            echo "No changes to commit."
+            echo "::warning::KiloCode still didn't write in CI; fallback step will synthesize it."
           fi
+
+      - name: Fallback (synthesize file if CLI did not write it)
+        run: |
+          set -euxo pipefail
+          if [ ! -f KILOCODE_DEMO.md ]; then
+            UTC_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            {
+              echo "# KiloCode CLI Demo"
+              echo "${UTC_NOW}"
+              echo "Hello from GitHub Actions."
+            } > KILOCODE_DEMO.md
+            echo "::notice::Wrote KILOCODE_DEMO.md via fallback."
+          fi
+          echo "Preview:"
+          head -n 20 KILOCODE_DEMO.md
+
+      - name: Commit & push if changed
+        run: |
+          set -euxo pipefail
+          # Exit early if the file doesn't exist
+          if [ ! -f KILOCODE_DEMO.md ]; then
+            echo "KILOCODE_DEMO.md not found; nothing to commit."
+            exit 0
+          fi
+
+          # Check if KILOCODE_DEMO.md has changes
+          if git diff --quiet --exit-code -- KILOCODE_DEMO.md; then
+            echo "No changes to KILOCODE_DEMO.md."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -- KILOCODE_DEMO.md
+          git commit -m "chore: add/update KILOCODE_DEMO.md (CLI headless demo)"
+          git push
+
+      - name: Attach KiloCode logs (artifact)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kilocode-log
+          path: kilocode.log
