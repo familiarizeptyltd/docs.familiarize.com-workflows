@@ -7,24 +7,24 @@ on:
       # If 'prompt_template' is non-empty, we'll render into .agent/rendered_prompt.md
       # Otherwise we use 'prompt_file' directly.
       prompt_template:
-        description: "TEMPLATE path under docs_repo (e.g., prompts/topic-template.md). Leave empty to use raw 'prompt_file'."
+        description: "TEMPLATE path under docs_repo (e.g., prompts/country-topic-template.md). Leave empty to use raw 'prompt_file'."
         required: false
         default: "prompts/country-topic-template.md"
 
       profile_key:
-        description: "Country profile key for templating (e.g., UAE, SG, UK). Ignored if template is empty."
+        description: "Country profile key (e.g., UAE, SG, UK). Ignored if template is empty."
         required: false
         default: "UAE"
 
       prompt_file:
-        description: "RAW prompt path under docs_repo (e.g., prompts/uae-three-pages.md). Used only when template is empty."
+        description: "RAW prompt path under docs_repo (e.g., prompts/uae-pages.md). Used only when template is empty."
         required: false
         default: "prompts/uae-pages.md"
 
       branch_name:
         description: "Target branch (created if missing)"
         required: true
-        default: "main"
+        default: "agent/openhands-run"
 
       llm_provider:
         description: "LLM provider: openai | openai_compat | grok"
@@ -32,7 +32,7 @@ on:
         default: "openai"
 
       llm_model:
-        description: "Model name (e.g., gpt-4o, gpt-4.1-mini, grok-2-mini, or your self-hosted model id)"
+        description: "Model name (e.g., gpt-4o-mini, gpt-4.1-mini, grok-2-mini, or your self-hosted model id)"
         required: true
         default: "gpt-4o-mini"
 
@@ -49,12 +49,12 @@ on:
       commit_mode:
         description: "direct = push to branch, pr = open PR"
         required: true
-        default: "direct"
+        default: "pr"
 
       run_mode:
         description: "docker | python | auto (docker first, fallback to python)"
         required: true
-        default: "auto"
+        default: "docker"
 
 jobs:
   openhands:
@@ -80,10 +80,10 @@ jobs:
       COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
       RUN_MODE: ${{ github.event.inputs.run_mode }}
 
-      # OpenHands container image (adjust if you pin a specific tag)
+      # OpenHands container image (pin/tag if you like)
       OPENHANDS_IMAGE: ghcr.io/openhands-ai/openhands:latest
 
-      # Target repo slug for PR creation
+      # Target repo for PR creation
       TARGET_REPO: familiarizeptyltd/docs.familiarize.com
 
     steps:
@@ -99,7 +99,7 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Setup Python (for templating and optional python-mode)
+      - name: Setup Python (templating + optional python-mode)
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -110,25 +110,46 @@ jobs:
           pip install pygithub
 
       # -------------------------
-      # RENDER OR USE RAW PROMPT
+      # Resolve template vs raw
       # -------------------------
-      - name: Render country-specific prompt
-        if: ${{ env.PROMPT_TEMPLATE != '' }}
+      - name: Resolve prompt (template → raw fallback)
         run: |
           set -euo pipefail
-          # Render into the private repo so downstream steps use a consistent path
-          python scripts/render_prompt.py \
-            --profiles "${REPO_DIR}/prompts/country-profiles.json" \
-            --profile-key "${PROFILE_KEY}" \
-            --template "${REPO_DIR}/${PROMPT_TEMPLATE}" \
-            --output   "${REPO_DIR}/.agent/rendered_prompt.md"
-          echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
 
-      - name: Use raw prompt (no template)
-        if: ${{ env.PROMPT_TEMPLATE == '' }}
-        run: |
-          set -euo pipefail
-          echo "PROMPT_FILE=${RAW_PROMPT_FILE}" >> "$GITHUB_ENV"
+          TEMPLATE_PATH="${REPO_DIR}/${PROMPT_TEMPLATE}"
+          PROFILES_NEW="${REPO_DIR}/prompts/country-profiles.json"
+          PROFILES_OLD="${REPO_DIR}/prompts/country_profiles.json"
+          RAW_PATH="${REPO_DIR}/${RAW_PROMPT_FILE}"
+
+          # Decide which profiles filename exists
+          if   [ -f "${PROFILES_NEW}" ]; then PROFILES_PATH="${PROFILES_NEW}"
+          elif [ -f "${PROFILES_OLD}" ]; then PROFILES_PATH="${PROFILES_OLD}"
+          else PROFILES_PATH=""
+          fi
+
+          use_template=false
+          if [ -n "${PROMPT_TEMPLATE}" ] && [ -f "${TEMPLATE_PATH}" ] && [ -n "${PROFILES_PATH}" ]; then
+            use_template=true
+          fi
+
+          if $use_template; then
+            echo "Using template: ${TEMPLATE_PATH} with profiles: ${PROFILES_PATH} (profile_key=${PROFILE_KEY})"
+            python scripts/render_prompt.py \
+              --profiles "${PROFILES_PATH}" \
+              --profile-key "${PROFILE_KEY}" \
+              --template   "${TEMPLATE_PATH}" \
+              --output     "${REPO_DIR}/.agent/rendered_prompt.md"
+            echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
+          else
+            echo "Template/profiles missing. Falling back to RAW prompt: ${RAW_PATH}"
+            if [ ! -f "${RAW_PATH}" ]; then
+              echo "❌ Missing inputs. Expected one of:"
+              echo "  - ${TEMPLATE_PATH} AND ( ${PROFILES_NEW} OR ${PROFILES_OLD} )"
+              echo "  - ${RAW_PATH}"
+              exit 1
+            fi
+            echo "PROMPT_FILE=${RAW_PROMPT_FILE}" >> "$GITHUB_ENV"
+          fi
 
       - name: Validate prompt path
         run: |
@@ -155,8 +176,14 @@ jobs:
           fi
 
       # ================================
-      #  A) Docker launcher (preferred)
+      #  Docker path (preferred / default)
       # ================================
+      - name: Pull OpenHands image (fail loud)
+        if: ${{ env.RUN_MODE == 'docker' || env.RUN_MODE == 'auto' }}
+        run: |
+          set -euo pipefail
+          docker pull "${OPENHANDS_IMAGE}"
+
       - name: Launch OpenHands (Docker)
         id: docker
         if: ${{ env.RUN_MODE == 'docker' || env.RUN_MODE == 'auto' }}
@@ -169,7 +196,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Map provider envs into generic ones consumed by the launcher
+          # Map provider secrets to launcher
           case "${LLM_PROVIDER}" in
             openai)
               export OH_API_KIND="openai"
@@ -203,7 +230,7 @@ jobs:
             --logs "${AGENT_LOG_DIR}"
 
       # ================================
-      #  B) Python runner (fallback or selected)
+      #  Python fallback (or explicit)
       # ================================
       - name: Launch OpenHands (pip)
         if: ${{ env.RUN_MODE == 'python' || (env.RUN_MODE == 'auto' && steps.docker.outcome == 'failure') }}
@@ -214,6 +241,7 @@ jobs:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
         run: |
           set -euo pipefail
+          python -m pip install --upgrade pip
           pip install openhands
           python scripts/run_openhands.py \
             --repo-path "${REPO_DIR}" \
@@ -262,7 +290,7 @@ jobs:
             --base "main" \
             --title "OpenHands: ${PROMPT_FILE}" \
             --body "$(printf "Automated changes by OpenHands agent.\n\nPrompt: \`%s\`\nBrowsing: \`%s\`, Search: \`%s\`\nModel: \`%s/%s\`" "${PROMPT_FILE}" "${ENABLE_BROWSING}" "${ENABLE_SEARCH}" "${LLM_PROVIDER}" "${LLM_MODEL}")" \
-          || echo "ℹ️ PR may already exist or branch already has an open PR."
+          || echo "ℹ️ PR may already exist or the branch already has an open PR."
 
       - name: Upload artifacts
         if: always()

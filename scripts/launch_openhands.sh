@@ -64,11 +64,11 @@ case "${LLM_KIND}" in
     ;;
 esac
 
-# Feature toggles — update names if your image expects different envs
+# Feature toggles — update names to match your image’s expectations if needed
 ENV_FLAGS+=("-e" "OH_ENABLE_BROWSING=${ENABLE_BROWSING}")
 ENV_FLAGS+=("-e" "OH_ENABLE_SEARCH=${ENABLE_SEARCH}")
 
-# NOTE: Replace the command below with the exact CLI your OpenHands image exposes if it differs.
+# NOTE: Adjust the command if your OpenHands image uses a different entrypoint/flags.
 docker run --rm \
   -v "$(pwd)/${REPO_PATH}:/workspace" \
   -v "$(pwd)/${PROMPT_PATH}:/prompt.md:ro" \
