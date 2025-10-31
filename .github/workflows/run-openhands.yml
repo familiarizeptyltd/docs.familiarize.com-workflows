@@ -7,7 +7,7 @@ on:
       # If 'prompt_template' is non-empty, we'll render into .agent/rendered_prompt.md
       # Otherwise we use 'prompt_file' directly.
       prompt_template:
-        description: "TEMPLATE path under docs_repo (e.g., prompts/country-topic-template.md). Leave empty to use raw 'prompt_file'."
+        description: "TEMPLATE path under docs_repo (e.g., prompts/country-topic-template.md). Empty = use raw 'prompt_file'."
         required: false
         default: "prompts/country-topic-template.md"
 
@@ -68,7 +68,7 @@ jobs:
       REPO_DIR: docs_repo
       AGENT_LOG_DIR: openhands_run
 
-      # Inputs as env
+      # Inputs → env
       PROMPT_TEMPLATE: ${{ github.event.inputs.prompt_template }}
       PROFILE_KEY: ${{ github.event.inputs.profile_key }}
       RAW_PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
@@ -80,8 +80,9 @@ jobs:
       COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
       RUN_MODE: ${{ github.event.inputs.run_mode }}
 
-      # OpenHands container image (pin/tag if you like)
-      OPENHANDS_IMAGE: ghcr.io/openhands-ai/openhands:latest
+      # ✅ Official OpenHands images (pin these; update tags as needed)
+      OPENHANDS_IMAGE: docker.openhands.dev/openhands/openhands:0.60
+      OPENHANDS_RUNTIME_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
 
       # Target repo for PR creation
       TARGET_REPO: familiarizeptyltd/docs.familiarize.com
@@ -178,11 +179,12 @@ jobs:
       # ================================
       #  Docker path (preferred / default)
       # ================================
-      - name: Pull OpenHands image (fail loud)
+      - name: Pull OpenHands images (fail loud)
         if: ${{ env.RUN_MODE == 'docker' || env.RUN_MODE == 'auto' }}
         run: |
           set -euo pipefail
           docker pull "${OPENHANDS_IMAGE}"
+          docker pull "${OPENHANDS_RUNTIME_IMAGE}"
 
       - name: Launch OpenHands (Docker)
         id: docker
@@ -193,6 +195,8 @@ jobs:
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          # pass runtime image to the launcher; the script will map it to SANDBOX_RUNTIME_CONTAINER_IMAGE
+          OPENHANDS_RUNTIME_IMAGE: ${{ env.OPENHANDS_RUNTIME_IMAGE }}
         run: |
           set -euo pipefail
 
