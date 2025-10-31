@@ -118,7 +118,7 @@ jobs:
           set -euo pipefail
           # Render into the private repo so downstream steps use a consistent path
           python scripts/render_prompt.py \
-            --profiles "${REPO_DIR}/prompts/country_profiles.json" \
+            --profiles "${REPO_DIR}/prompts/country-profiles.json" \
             --profile-key "${PROFILE_KEY}" \
             --template "${REPO_DIR}/${PROMPT_TEMPLATE}" \
             --output   "${REPO_DIR}/.agent/rendered_prompt.md"
