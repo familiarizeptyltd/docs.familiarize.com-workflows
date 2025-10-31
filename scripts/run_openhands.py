@@ -16,24 +16,24 @@ def main():
 
     env = os.environ.copy()
 
-    # Map provider to env that OpenHands expects (adjust if needed)
+    # Map provider to env expected by your OpenHands build
     if args.llm_provider == "openai":
-        # expects OPENAI_API_KEY set in env
+        # expects OPENAI_API_KEY in env
         env["OPENAI_MODEL"] = args.llm_model
     elif args.llm_provider == "openai_compat":
-        # expects OPENAI_API_KEY + OPENAI_BASE_URL set in env
+        # expects OPENAI_API_KEY + OPENAI_BASE_URL in env
         env["OPENAI_MODEL"] = args.llm_model
     elif args.llm_provider == "grok":
-        # expects GROK_API_KEY set in env
+        # expects GROK_API_KEY in env
         env["GROK_MODEL"] = args.llm_model
 
     env["OH_ENABLE_BROWSING"] = args.enable_browsing
-    env["OH_ENABLE_SEARCH"] = args.enable_search
+    env["OH_ENABLE_SEARCH"]   = args.enable_search
 
     goal_text = pathlib.Path(args.prompt_path).read_text(encoding="utf-8")
 
-    # If OpenHands exposes a Python API, call it here.
-    # Using CLI for widest compatibility:
+    # If your OpenHands exposes a Python API, switch to it here.
+    # Using CLI for wide compatibility:
     cmd = [
         "openhands", "run",
         "--repo", args.repo_path,

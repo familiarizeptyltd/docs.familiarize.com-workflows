@@ -64,16 +64,16 @@ case "${LLM_KIND}" in
     ;;
 esac
 
-# Feature toggles — adjust names to what your image expects
+# Feature toggles — update names if your image expects different envs
 ENV_FLAGS+=("-e" "OH_ENABLE_BROWSING=${ENABLE_BROWSING}")
 ENV_FLAGS+=("-e" "OH_ENABLE_SEARCH=${ENABLE_SEARCH}")
 
-# NOTE: Replace 'openhands run ...' with the exact CLI/entrypoint your image provides.
+# NOTE: Replace the command below with the exact CLI your OpenHands image exposes if it differs.
 docker run --rm \
   -v "$(pwd)/${REPO_PATH}:/workspace" \
-  -v "$(pwd)/${PROMPT_PATH}:/prompt.txt:ro" \
+  -v "$(pwd)/${PROMPT_PATH}:/prompt.md:ro" \
   -v "$(pwd)/${LOG_DIR}:/logs" \
-  -e "OH_GOAL_FILE=/prompt.txt" \
+  -e "OH_GOAL_FILE=/prompt.md" \
   "${ENV_FLAGS[@]}" \
   "${IMAGE}" \
   bash -lc 'openhands run --repo /workspace --goal-file "$OH_GOAL_FILE" --logs /logs || true'

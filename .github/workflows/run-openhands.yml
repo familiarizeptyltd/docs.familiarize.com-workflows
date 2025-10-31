@@ -3,15 +3,28 @@ name: Run OpenHands on docs.familiarize.com
 on:
   workflow_dispatch:
     inputs:
+      # Use EITHER the template+profile path or a raw prompt file.
+      # If 'prompt_template' is non-empty, we'll render into .agent/rendered_prompt.md
+      # Otherwise we use 'prompt_file' directly.
+      prompt_template:
+        description: "TEMPLATE path under docs_repo (e.g., prompts/topic-template.md). Leave empty to use raw 'prompt_file'."
+        required: false
+        default: "prompts/country-topic-template.md"
+
+      profile_key:
+        description: "Country profile key for templating (e.g., UAE, SG, UK). Ignored if template is empty."
+        required: false
+        default: "UAE"
+
       prompt_file:
-        description: "Path under docs_repo (e.g., prompts/add-faq-page.txt)"
-        required: true
-        default: "prompts/sample.txt"
+        description: "RAW prompt path under docs_repo (e.g., prompts/uae-three-pages.md). Used only when template is empty."
+        required: false
+        default: "prompts/uae-pages.md"
 
       branch_name:
         description: "Target branch (created if missing)"
         required: true
-        default: "agent/openhands-run"
+        default: "main"
 
       llm_provider:
         description: "LLM provider: openai | openai_compat | grok"
@@ -19,9 +32,9 @@ on:
         default: "openai"
 
       llm_model:
-        description: "Model name (e.g., gpt-4o, gpt-4.1-mini, grok-2-mini, custom)"
+        description: "Model name (e.g., gpt-4o, gpt-4.1-mini, grok-2-mini, or your self-hosted model id)"
         required: true
-        default: "gpt-4.1-mini"
+        default: "gpt-4o-mini"
 
       browsing_enabled:
         description: "Enable in-agent web browsing?"
@@ -36,7 +49,7 @@ on:
       commit_mode:
         description: "direct = push to branch, pr = open PR"
         required: true
-        default: "pr"
+        default: "direct"
 
       dry_run:
         description: "true = do not commit/push or PR"
@@ -44,9 +57,9 @@ on:
         default: "false"
 
       run_mode:
-        description: "docker | python | auto (docker then fallback to python)"
+        description: "docker | python | auto (docker first, fallback to python)"
         required: true
-        default: "docker"
+        default: "auto"
 
 jobs:
   openhands:
@@ -61,7 +74,9 @@ jobs:
       AGENT_LOG_DIR: openhands_run
 
       # Inputs as env
-      PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
+      PROMPT_TEMPLATE: ${{ github.event.inputs.prompt_template }}
+      PROFILE_KEY: ${{ github.event.inputs.profile_key }}
+      RAW_PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
       TARGET_BRANCH: ${{ github.event.inputs.branch_name }}
       LLM_PROVIDER: ${{ github.event.inputs.llm_provider }}
       LLM_MODEL: ${{ github.event.inputs.llm_model }}
@@ -71,7 +86,7 @@ jobs:
       DRY_RUN: ${{ github.event.inputs.dry_run }}
       RUN_MODE: ${{ github.event.inputs.run_mode }}
 
-      # OpenHands container image (adjust if needed)
+      # OpenHands container image (adjust if you pin a specific tag)
       OPENHANDS_IMAGE: ghcr.io/openhands-ai/openhands:latest
 
       # Target repo slug for PR creation
@@ -89,6 +104,37 @@ jobs:
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0
           submodules: true
+
+      - name: Setup Python (for templating and optional python-mode)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install small deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygithub
+
+      # -------------------------
+      # RENDER OR USE RAW PROMPT
+      # -------------------------
+      - name: Render country-specific prompt
+        if: ${{ env.PROMPT_TEMPLATE != '' }}
+        run: |
+          set -euo pipefail
+          # Render into the private repo so downstream steps use a consistent path
+          python scripts/render_prompt.py \
+            --profiles "${REPO_DIR}/prompts/country_profiles.json" \
+            --profile-key "${PROFILE_KEY}" \
+            --template "${REPO_DIR}/${PROMPT_TEMPLATE}" \
+            --output   "${REPO_DIR}/.agent/rendered_prompt.md"
+          echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
+
+      - name: Use raw prompt (no template)
+        if: ${{ env.PROMPT_TEMPLATE == '' }}
+        run: |
+          set -euo pipefail
+          echo "PROMPT_FILE=${RAW_PROMPT_FILE}" >> "$GITHUB_ENV"
 
       - name: Validate prompt path
         run: |
@@ -114,16 +160,6 @@ jobs:
             git checkout -b "${TARGET_BRANCH}"
           fi
 
-      - name: Setup Python (for either mode & for PR step if using gh)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Preinstall small deps (used by python mode and optional pre/post hooks)
-        run: |
-          python -m pip install --upgrade pip
-          pip install pygithub
-
       # ================================
       #  A) Docker launcher (preferred)
       # ================================
@@ -132,7 +168,6 @@ jobs:
         if: ${{ env.RUN_MODE == 'docker' || env.RUN_MODE == 'auto' }}
         continue-on-error: true
         env:
-          # Provider secrets (set what you use)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
@@ -221,7 +256,6 @@ jobs:
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
           set -euo pipefail
-          # Use PAT to push
           git push --set-upstream origin "${TARGET_BRANCH}"
 
       - name: Create PR (if requested)
@@ -230,8 +264,6 @@ jobs:
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
           set -euo pipefail
-          # Create or update a PR in the PRIVATE repo
-          # If a PR already exists for this branch, this will fail; handle gracefully.
           gh pr create \
             --repo "${TARGET_REPO}" \
             --head "${TARGET_BRANCH}" \
