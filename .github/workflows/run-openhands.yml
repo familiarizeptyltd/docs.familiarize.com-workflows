@@ -1,4 +1,4 @@
-name: Run OpenHands on docs.familiarize.com
+name: OpenHands
 
 on:
   workflow_dispatch:
