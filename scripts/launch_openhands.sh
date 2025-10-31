@@ -11,6 +11,7 @@ LLM_MODEL=""
 ENABLE_BROWSING="true"
 ENABLE_SEARCH="true"
 LOG_DIR="openhands_run"
+RUNTIME_IMAGE="${OPENHANDS_RUNTIME_IMAGE:-}"  # passed from workflow env
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,16 +30,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${IMAGE}" || -z "${REPO_PATH}" || -z "${PROMPT_PATH}" || -z "${LLM_KIND}" || -z "${LLM_MODEL}" ]]; then
-  cat <<EOF
-Missing required args.
-
-IMAGE=${IMAGE}
-REPO_PATH=${REPO_PATH}
-PROMPT_PATH=${PROMPT_PATH}
-LLM_KIND=${LLM_KIND}
-LLM_MODEL=${LLM_MODEL}
-EOF
-  exit 2
+  echo "Missing required args"; exit 2
 fi
 
 mkdir -p "${LOG_DIR}"
@@ -46,34 +38,47 @@ mkdir -p "${LOG_DIR}"
 ENV_FLAGS=()
 case "${LLM_KIND}" in
   openai)
-    ENV_FLAGS+=("-e" "OPENAI_API_KEY=${LLM_KEY}")
-    ENV_FLAGS+=("-e" "OPENAI_MODEL=${LLM_MODEL}")
+    ENV_FLAGS+=(-e "OPENAI_API_KEY=${LLM_KEY}")
+    ENV_FLAGS+=(-e "OPENAI_MODEL=${LLM_MODEL}")
     ;;
   openai_compat)
-    ENV_FLAGS+=("-e" "OPENAI_API_KEY=${LLM_KEY}")
-    ENV_FLAGS+=("-e" "OPENAI_BASE_URL=${LLM_BASE}")
-    ENV_FLAGS+=("-e" "OPENAI_MODEL=${LLM_MODEL}")
+    ENV_FLAGS+=(-e "OPENAI_API_KEY=${LLM_KEY}")
+    ENV_FLAGS+=(-e "OPENAI_BASE_URL=${LLM_BASE}")
+    ENV_FLAGS+=(-e "OPENAI_MODEL=${LLM_MODEL}")
     ;;
   grok)
-    ENV_FLAGS+=("-e" "GROK_API_KEY=${LLM_KEY}")
-    ENV_FLAGS+=("-e" "GROK_MODEL=${LLM_MODEL}")
+    ENV_FLAGS+=(-e "GROK_API_KEY=${LLM_KEY}")
+    ENV_FLAGS+=(-e "GROK_MODEL=${LLM_MODEL}")
     ;;
   *)
-    echo "Unsupported LLM kind: ${LLM_KIND}"
-    exit 2
-    ;;
+    echo "Unsupported LLM kind: ${LLM_KIND}"; exit 2 ;;
 esac
 
-# Feature toggles — update names to match your image’s expectations if needed
-ENV_FLAGS+=("-e" "OH_ENABLE_BROWSING=${ENABLE_BROWSING}")
-ENV_FLAGS+=("-e" "OH_ENABLE_SEARCH=${ENABLE_SEARCH}")
+# feature toggles
+ENV_FLAGS+=(-e "OH_ENABLE_BROWSING=${ENABLE_BROWSING}")
+ENV_FLAGS+=(-e "OH_ENABLE_SEARCH=${ENABLE_SEARCH}")
 
-# NOTE: Adjust the command if your OpenHands image uses a different entrypoint/flags.
+# runtime image for sandbox (required)
+if [[ -n "${RUNTIME_IMAGE}" ]]; then
+  ENV_FLAGS+=(-e "SANDBOX_RUNTIME_CONTAINER_IMAGE=${RUNTIME_IMAGE}")
+fi
+
+# IMPORTANT: mount docker.sock so the backend can start the sandbox container
+DOCKER_SOCK="/var/run/docker.sock"
+DOCKER_MOUNT=()
+if [[ -S "${DOCKER_SOCK}" ]]; then
+  DOCKER_MOUNT=(-v "${DOCKER_SOCK}:${DOCKER_SOCK}")
+else
+  echo "Warning: ${DOCKER_SOCK} not found on host; sandbox will fail to start."
+fi
+
+# Use the module entry point (CLI binary may not exist in image)
 docker run --rm \
+  "${DOCKER_MOUNT[@]}" \
   -v "$(pwd)/${REPO_PATH}:/workspace" \
   -v "$(pwd)/${PROMPT_PATH}:/prompt.md:ro" \
   -v "$(pwd)/${LOG_DIR}:/logs" \
   -e "OH_GOAL_FILE=/prompt.md" \
   "${ENV_FLAGS[@]}" \
   "${IMAGE}" \
-  bash -lc 'openhands run --repo /workspace --goal-file "$OH_GOAL_FILE" --logs /logs || true'
+  bash -lc 'python -m openhands.cli.main run --repo /workspace --goal-file "$OH_GOAL_FILE" --logs /logs || true'
