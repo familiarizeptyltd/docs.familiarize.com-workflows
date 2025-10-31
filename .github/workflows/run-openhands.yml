@@ -51,11 +51,6 @@ on:
         required: true
         default: "direct"
 
-      dry_run:
-        description: "true = do not commit/push or PR"
-        required: true
-        default: "false"
-
       run_mode:
         description: "docker | python | auto (docker first, fallback to python)"
         required: true
@@ -83,7 +78,6 @@ jobs:
       ENABLE_BROWSING: ${{ github.event.inputs.browsing_enabled }}
       ENABLE_SEARCH: ${{ github.event.inputs.web_search_enabled }}
       COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
-      DRY_RUN: ${{ github.event.inputs.dry_run }}
       RUN_MODE: ${{ github.event.inputs.run_mode }}
 
       # OpenHands container image (adjust if you pin a specific tag)
@@ -237,7 +231,6 @@ jobs:
           ls -la "${AGENT_LOG_DIR}" || true
 
       - name: Commit changes (if any)
-        if: ${{ github.event.inputs.dry_run != 'true' }}
         working-directory: ${{ env.REPO_DIR }}
         run: |
           set -euo pipefail
@@ -249,7 +242,6 @@ jobs:
           git commit -m "OpenHands agent: apply changes from ${PROMPT_FILE}"
 
       - name: Push branch
-        if: ${{ github.event.inputs.dry_run != 'true' }}
         working-directory: ${{ env.REPO_DIR }}
         env:
           GIT_ASKPASS: /bin/echo
@@ -259,7 +251,7 @@ jobs:
           git push --set-upstream origin "${TARGET_BRANCH}"
 
       - name: Create PR (if requested)
-        if: ${{ github.event.inputs.dry_run != 'true' && github.event.inputs.commit_mode == 'pr' }}
+        if: ${{ github.event.inputs.commit_mode == 'pr' }}
         env:
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
