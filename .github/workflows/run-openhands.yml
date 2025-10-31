@@ -1,0 +1,249 @@
+name: Run OpenHands on docs.familiarize.com
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_file:
+        description: "Path under docs_repo (e.g., prompts/add-faq-page.txt)"
+        required: true
+        default: "prompts/sample.txt"
+
+      branch_name:
+        description: "Target branch (created if missing)"
+        required: true
+        default: "agent/openhands-run"
+
+      llm_provider:
+        description: "LLM provider: openai | openai_compat | grok"
+        required: true
+        default: "openai"
+
+      llm_model:
+        description: "Model name (e.g., gpt-4o, gpt-4.1-mini, grok-2-mini, custom)"
+        required: true
+        default: "gpt-4.1-mini"
+
+      browsing_enabled:
+        description: "Enable in-agent web browsing?"
+        required: true
+        default: "true"
+
+      web_search_enabled:
+        description: "Enable web search?"
+        required: true
+        default: "true"
+
+      commit_mode:
+        description: "direct = push to branch, pr = open PR"
+        required: true
+        default: "pr"
+
+      dry_run:
+        description: "true = do not commit/push or PR"
+        required: true
+        default: "false"
+
+      run_mode:
+        description: "docker | python | auto (docker then fallback to python)"
+        required: true
+        default: "docker"
+
+jobs:
+  openhands:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    env:
+      # Repo paths
+      REPO_DIR: docs_repo
+      AGENT_LOG_DIR: openhands_run
+
+      # Inputs as env
+      PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
+      TARGET_BRANCH: ${{ github.event.inputs.branch_name }}
+      LLM_PROVIDER: ${{ github.event.inputs.llm_provider }}
+      LLM_MODEL: ${{ github.event.inputs.llm_model }}
+      ENABLE_BROWSING: ${{ github.event.inputs.browsing_enabled }}
+      ENABLE_SEARCH: ${{ github.event.inputs.web_search_enabled }}
+      COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
+      DRY_RUN: ${{ github.event.inputs.dry_run }}
+      RUN_MODE: ${{ github.event.inputs.run_mode }}
+
+      # OpenHands container image (adjust if needed)
+      OPENHANDS_IMAGE: ghcr.io/openhands-ai/openhands:latest
+
+      # Target repo slug for PR creation
+      TARGET_REPO: familiarizeptyltd/docs.familiarize.com
+
+    steps:
+      - name: Checkout workflows repo (public)
+        uses: actions/checkout@v4
+
+      - name: Checkout docs.familiarize.com (private)
+        uses: actions/checkout@v4
+        with:
+          repository: familiarizeptyltd/docs.familiarize.com
+          path: docs_repo
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0
+          submodules: true
+
+      - name: Validate prompt path
+        run: |
+          set -euo pipefail
+          if [ ! -f "${REPO_DIR}/${PROMPT_FILE}" ]; then
+            echo "❌ Prompt file not found: ${REPO_DIR}/${PROMPT_FILE}"
+            exit 1
+          fi
+
+      - name: Configure Git user
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          git config user.name  "ci-agent"
+          git config user.email "ci-agent@users.noreply.github.com"
+
+      - name: Create/switch branch
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify "${TARGET_BRANCH}" >/dev/null 2>&1; then
+            git checkout "${TARGET_BRANCH}"
+          else
+            git checkout -b "${TARGET_BRANCH}"
+          fi
+
+      - name: Setup Python (for either mode & for PR step if using gh)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Preinstall small deps (used by python mode and optional pre/post hooks)
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygithub
+
+      # ================================
+      #  A) Docker launcher (preferred)
+      # ================================
+      - name: Launch OpenHands (Docker)
+        id: docker
+        if: ${{ env.RUN_MODE == 'docker' || env.RUN_MODE == 'auto' }}
+        continue-on-error: true
+        env:
+          # Provider secrets (set what you use)
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
+          OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          # Map provider envs into generic ones consumed by the launcher
+          case "${LLM_PROVIDER}" in
+            openai)
+              export OH_API_KIND="openai"
+              export OH_API_KEY="${OPENAI_API_KEY:-}"
+              ;;
+            openai_compat)
+              export OH_API_KIND="openai_compat"
+              export OH_API_KEY="${OPENAI_COMPAT_API_KEY:-}"
+              export OH_API_BASE="${OPENAI_COMPAT_BASE_URL:-}"
+              ;;
+            grok)
+              export OH_API_KIND="grok"
+              export OH_API_KEY="${GROK_API_KEY:-}"
+              ;;
+            *)
+              echo "Unsupported LLM provider: ${LLM_PROVIDER}"
+              exit 1
+              ;;
+          esac
+
+          bash scripts/launch_openhands.sh \
+            --image "${OPENHANDS_IMAGE}" \
+            --repo-path "${REPO_DIR}" \
+            --prompt-path "${REPO_DIR}/${PROMPT_FILE}" \
+            --llm-kind "${OH_API_KIND}" \
+            --llm-key "${OH_API_KEY:-}" \
+            --llm-base "${OH_API_BASE:-}" \
+            --llm-model "${LLM_MODEL}" \
+            --enable-browsing "${ENABLE_BROWSING}" \
+            --enable-search "${ENABLE_SEARCH}" \
+            --logs "${AGENT_LOG_DIR}"
+
+      # ================================
+      #  B) Python runner (fallback or selected)
+      # ================================
+      - name: Launch OpenHands (pip)
+        if: ${{ env.RUN_MODE == 'python' || (env.RUN_MODE == 'auto' && steps.docker.outcome == 'failure') }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
+          OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+        run: |
+          set -euo pipefail
+          pip install openhands
+          python scripts/run_openhands.py \
+            --repo-path "${REPO_DIR}" \
+            --prompt-path "${REPO_DIR}/${PROMPT_FILE}" \
+            --llm-provider "${LLM_PROVIDER}" \
+            --llm-model "${LLM_MODEL}" \
+            --enable-browsing "${ENABLE_BROWSING}" \
+            --enable-search "${ENABLE_SEARCH}" \
+            --logs "${AGENT_LOG_DIR}"
+
+      - name: Show agent outputs
+        if: always()
+        run: |
+          echo "------- Agent output dir -------"
+          ls -la "${AGENT_LOG_DIR}" || true
+
+      - name: Commit changes (if any)
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo "ℹ️ No changes to commit."
+            exit 0
+          fi
+          git commit -m "OpenHands agent: apply changes from ${PROMPT_FILE}"
+
+      - name: Push branch
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: ${{ env.REPO_DIR }}
+        env:
+          GIT_ASKPASS: /bin/echo
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Use PAT to push
+          git push --set-upstream origin "${TARGET_BRANCH}"
+
+      - name: Create PR (if requested)
+        if: ${{ github.event.inputs.dry_run != 'true' && github.event.inputs.commit_mode == 'pr' }}
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Create or update a PR in the PRIVATE repo
+          # If a PR already exists for this branch, this will fail; handle gracefully.
+          gh pr create \
+            --repo "${TARGET_REPO}" \
+            --head "${TARGET_BRANCH}" \
+            --base "main" \
+            --title "OpenHands: ${PROMPT_FILE}" \
+            --body "$(printf "Automated changes by OpenHands agent.\n\nPrompt: \`%s\`\nBrowsing: \`%s\`, Search: \`%s\`\nModel: \`%s/%s\`" "${PROMPT_FILE}" "${ENABLE_BROWSING}" "${ENABLE_SEARCH}" "${LLM_PROVIDER}" "${LLM_MODEL}")" \
+          || echo "ℹ️ PR may already exist or branch already has an open PR."
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openhands-run-${{ github.run_id }}
+          path: ${{ env.AGENT_LOG_DIR }}/
+          if-no-files-found: warn
