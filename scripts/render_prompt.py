@@ -11,7 +11,7 @@ def render(template: str, ctx: dict) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--profiles", required=True, help="Path to country_profiles.json")
+    ap.add_argument("--profiles", required=True, help="Path to country-profiles.json")
     ap.add_argument("--profile-key", required=True, help="Key in JSON, e.g., UAE, SG, UK")
     ap.add_argument("--template", required=True, help="Path to prompt template .md")
     ap.add_argument("--output", required=True, help="Output path for rendered prompt .md (inside docs_repo)")
