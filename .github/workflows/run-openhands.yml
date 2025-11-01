@@ -185,7 +185,7 @@ jobs:
           OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
           OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
 
-          # Tavily search
+          # Tavily
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
           # Images
@@ -215,26 +215,20 @@ jobs:
               echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
           esac
 
-          # Optional browsing hint
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
 
-          # Ensure logs and state dirs on the host
-          mkdir -p "${AGENT_LOG_DIR}"
-          mkdir -p "${GITHUB_WORKSPACE}/.openhands"
+          mkdir -p "${AGENT_LOG_DIR}" "${GITHUB_WORKSPACE}/.openhands"
           chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
 
-          # Preflight on host: verify the goal file exists & show its details
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
           if [ ! -f "${HOST_GOAL}" ]; then
             echo "❌ Missing goal file on host: ${HOST_GOAL}"
-            echo "Contents of ${REPO_DIR}/:"
             ls -la "${REPO_DIR}" || true
             exit 1
           fi
           echo "✅ Found goal on host: ${HOST_GOAL}"
           ls -la "${REPO_DIR}/.agent" || true
 
-          # Absolute path used inside the container
           GOAL_ABS="/workspace/${PROMPT_FILE}"
 
           docker run --rm \
@@ -256,18 +250,27 @@ jobs:
             --add-host host.docker.internal:host-gateway \
             docker.openhands.dev/openhands/openhands:0.60 \
               bash -lc 'set -euo pipefail;
+                        VENV_PY="/app/.venv/bin/python";
+                        VENV_PIP="/app/.venv/bin/pip";
+                        echo "Using Python: $($VENV_PY -c "import sys; print(sys.executable, sys.version)")";
                         if [ ! -f "'"${GOAL_ABS}"'" ]; then
-                          echo "❌ Goal not visible inside container: '"${GOAL_ABS}"'";
-                          echo "Listing /workspace and /.agent:";
-                          ls -la /workspace || true;
-                          ls -la /workspace/.agent || true;
-                          exit 1;
-                        fi;
-                        echo "✅ Goal visible inside container: '"${GOAL_ABS}"'";
-                        # --- FIX: install missing dependency used by openhands.agenthub ---
-                        /app/.venv/bin/pip install -q --no-input --disable-pip-version-check python-dotenv;
-                        # ---------------------------------------------------------------
-                        python -m openhands.core.main -f "'"${GOAL_ABS}"'" -d "/workspace"'
+                          echo "❌ Goal not visible: '"${GOAL_ABS}"'"; ls -la /workspace /workspace/.agent || true; exit 1; fi;
+                        echo "✅ Goal visible: '"${GOAL_ABS}"'";
+
+                        # Ensure python-dotenv is available in the SAME interpreter we will run
+                        $VENV_PY -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv;
+
+                        # Optional: show that dotenv is importable
+                        $VENV_PY - <<PY
+import importlib, sys
+print("Import check sys.executable:", sys.executable)
+importlib.import_module("dotenv")
+print("✅ python-dotenv import OK")
+PY
+
+                        # Run headless
+                        exec "$VENV_PY" -m openhands.core.main -f "'"${GOAL_ABS}"'" -d "/workspace"'
+
 
       - name: Show agent outputs (if any)
         if: always()
