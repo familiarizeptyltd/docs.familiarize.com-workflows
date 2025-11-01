@@ -251,22 +251,16 @@ jobs:
             docker.openhands.dev/openhands/openhands:0.60 \
               bash -lc 'set -euo pipefail;
                         VENV_PY="/app/.venv/bin/python";
-                        VENV_PIP="/app/.venv/bin/pip";
                         echo "Using Python: $($VENV_PY -c "import sys; print(sys.executable, sys.version)")";
                         if [ ! -f "'"${GOAL_ABS}"'" ]; then
                           echo "❌ Goal not visible: '"${GOAL_ABS}"'"; ls -la /workspace /workspace/.agent || true; exit 1; fi;
                         echo "✅ Goal visible: '"${GOAL_ABS}"'";
 
-                        # Ensure python-dotenv is available in the SAME interpreter we will run
+                        # Ensure python-dotenv is available in THE SAME interpreter
                         $VENV_PY -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv;
 
-                        # Optional: show that dotenv is importable
-                        $VENV_PY - <<PY
-import importlib, sys
-print("Import check sys.executable:", sys.executable)
-importlib.import_module("dotenv")
-print("✅ python-dotenv import OK")
-PY
+                        # Import check (no heredoc; avoids YAML parsing issues)
+                        $VENV_PY -c "import importlib, sys; print('Import check sys.executable:', sys.executable); importlib.import_module('dotenv'); print('✅ python-dotenv import OK')";
 
                         # Run headless
                         exec "$VENV_PY" -m openhands.core.main -f "'"${GOAL_ABS}"'" -d "/workspace"'
