@@ -3,11 +3,9 @@ name: OpenHands
 on:
   workflow_dispatch:
     inputs:
-      # Use EITHER the template+profile path or a raw prompt file.
-      # If 'prompt_template' is non-empty, we'll render into .agent/rendered_prompt.md
-      # Otherwise we use 'prompt_file' directly.
+      # Use EITHER the template+profile or a raw prompt file.
       prompt_template:
-        description: "TEMPLATE path under docs_repo (e.g., prompts/country-topic-template.md). Empty = use raw 'prompt_file'."
+        description: "Template path in private repo (e.g., prompts/country-topic-template.md). Leave empty to use raw prompt_file."
         required: false
         default: "prompts/country-topic-template.md"
 
@@ -17,7 +15,7 @@ on:
         default: "UAE"
 
       prompt_file:
-        description: "RAW prompt path under docs_repo (e.g., prompts/uae-pages.md). Used only when template is empty."
+        description: "RAW prompt path in private repo (used only when template is empty), e.g., prompts/uae-pages.md"
         required: false
         default: "prompts/uae-pages.md"
 
@@ -32,7 +30,7 @@ on:
         default: "openai"
 
       llm_model:
-        description: "Model name (e.g., gpt-4o-mini, gpt-4.1-mini, grok-2-mini, or your self-hosted model id)"
+        description: "Model id (e.g., gpt-4o-mini, gpt-4.1-mini, grok-2-mini, or your compat id)"
         required: true
         default: "gpt-4o-mini"
 
@@ -50,11 +48,6 @@ on:
         description: "direct = push to branch, pr = open PR"
         required: true
         default: "pr"
-
-      run_mode:
-        description: "docker | python | auto (docker first, fallback to python)"
-        required: true
-        default: "docker"
 
 jobs:
   openhands:
@@ -78,11 +71,9 @@ jobs:
       ENABLE_BROWSING: ${{ github.event.inputs.browsing_enabled }}
       ENABLE_SEARCH: ${{ github.event.inputs.web_search_enabled }}
       COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
-      RUN_MODE: ${{ github.event.inputs.run_mode }}
 
-      # ✅ Official OpenHands images (pin these; update tags as needed)
-      OPENHANDS_IMAGE: docker.openhands.dev/openhands/openhands:0.60
-      OPENHANDS_RUNTIME_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
+      # OpenHands sandbox runtime image (required for tools/browsing)
+      SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
 
       # Target repo for PR creation
       TARGET_REPO: familiarizeptyltd/docs.familiarize.com
@@ -100,14 +91,17 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Setup Python (templating + optional python-mode)
+      - name: Setup Python (templating + CLI)
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install small deps
+      - name: Install OpenHands CLI
         run: |
           python -m pip install --upgrade pip
+          # Headless CLI package
+          pip install openhands-ai
+          # Small helper
           pip install pygithub
 
       # -------------------------
@@ -177,43 +171,44 @@ jobs:
           fi
 
       # ================================
-      #  Docker path (preferred / default)
+      #  Headless OpenHands CLI
       # ================================
-      - name: Pull OpenHands images (fail loud)
-        if: ${{ env.RUN_MODE == 'docker' || env.RUN_MODE == 'auto' }}
+      - name: Pull sandbox runtime image (faster first run)
         run: |
           set -euo pipefail
-          docker pull "${OPENHANDS_IMAGE}"
-          docker pull "${OPENHANDS_RUNTIME_IMAGE}"
+          docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
 
-      - name: Launch OpenHands (Docker)
-        id: docker
-        if: ${{ env.RUN_MODE == 'docker' || env.RUN_MODE == 'auto' }}
-        continue-on-error: true
+      - name: Run OpenHands (headless CLI)
         env:
+          # LLM creds (set the ones you use as repo secrets)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          # pass runtime image to the launcher; the script will map it to SANDBOX_RUNTIME_CONTAINER_IMAGE
-          OPENHANDS_RUNTIME_IMAGE: ${{ env.OPENHANDS_RUNTIME_IMAGE }}
+
+          # Feature toggles
+          OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
+          OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
+
+          # Sandbox runtime image for tools/browsing
+          SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
         run: |
           set -euo pipefail
 
-          # Map provider secrets to launcher
+          # Map provider → env OpenHands expects
           case "${LLM_PROVIDER}" in
             openai)
-              export OH_API_KIND="openai"
-              export OH_API_KEY="${OPENAI_API_KEY:-}"
+              export OPENAI_MODEL="${LLM_MODEL}"
+              # OPENAI_API_KEY already from secrets
               ;;
             openai_compat)
-              export OH_API_KIND="openai_compat"
-              export OH_API_KEY="${OPENAI_COMPAT_API_KEY:-}"
-              export OH_API_BASE="${OPENAI_COMPAT_BASE_URL:-}"
+              export OPENAI_MODEL="${LLM_MODEL}"
+              export OPENAI_API_KEY="${OPENAI_COMPAT_API_KEY}"
+              export OPENAI_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
               ;;
             grok)
-              export OH_API_KIND="grok"
-              export OH_API_KEY="${GROK_API_KEY:-}"
+              export GROK_MODEL="${LLM_MODEL}"
+              # GROK_API_KEY already from secrets
               ;;
             *)
               echo "Unsupported LLM provider: ${LLM_PROVIDER}"
@@ -221,39 +216,10 @@ jobs:
               ;;
           esac
 
-          bash scripts/launch_openhands.sh \
-            --image "${OPENHANDS_IMAGE}" \
-            --repo-path "${REPO_DIR}" \
-            --prompt-path "${REPO_DIR}/${PROMPT_FILE}" \
-            --llm-kind "${OH_API_KIND}" \
-            --llm-key "${OH_API_KEY:-}" \
-            --llm-base "${OH_API_BASE:-}" \
-            --llm-model "${LLM_MODEL}" \
-            --enable-browsing "${ENABLE_BROWSING}" \
-            --enable-search "${ENABLE_SEARCH}" \
-            --logs "${AGENT_LOG_DIR}"
-
-      # ================================
-      #  Python fallback (or explicit)
-      # ================================
-      - name: Launch OpenHands (pip)
-        if: ${{ env.RUN_MODE == 'python' || (env.RUN_MODE == 'auto' && steps.docker.outcome == 'failure') }}
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
-          OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install openhands
-          python scripts/run_openhands.py \
-            --repo-path "${REPO_DIR}" \
-            --prompt-path "${REPO_DIR}/${PROMPT_FILE}" \
-            --llm-provider "${LLM_PROVIDER}" \
-            --llm-model "${LLM_MODEL}" \
-            --enable-browsing "${ENABLE_BROWSING}" \
-            --enable-search "${ENABLE_SEARCH}" \
+          echo "Running OpenHands headless…"
+          openhands run \
+            --repo "${REPO_DIR}" \
+            --goal-file "${REPO_DIR}/${PROMPT_FILE}" \
             --logs "${AGENT_LOG_DIR}"
 
       - name: Show agent outputs
@@ -294,7 +260,7 @@ jobs:
             --base "main" \
             --title "OpenHands: ${PROMPT_FILE}" \
             --body "$(printf "Automated changes by OpenHands agent.\n\nPrompt: \`%s\`\nBrowsing: \`%s\`, Search: \`%s\`\nModel: \`%s/%s\`" "${PROMPT_FILE}" "${ENABLE_BROWSING}" "${ENABLE_SEARCH}" "${LLM_PROVIDER}" "${LLM_MODEL}")" \
-          || echo "ℹ️ PR may already exist or the branch already has an open PR."
+          || echo "ℹ️ PR may already exist or the token lacks PR scope."
 
       - name: Upload artifacts
         if: always()
