@@ -184,12 +184,12 @@ jobs:
           # Tavily (search backend)
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
-          # Sandbox runtime (used by OpenHands to spawn containers/tools)
+          # Sandbox runtime container used by OpenHands
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
         run: |
           set -euo pipefail
 
-          # Map provider -> the LLM_* env that headless OpenHands reads
+          # Map provider -> LLM_* env that OpenHands reads
           case "${LLM_PROVIDER}" in
             openai)
               export LLM_MODEL="${LLM_MODEL}"
@@ -211,27 +211,33 @@ jobs:
           # Browsing hint (agent decides usage)
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
 
-          # Ensure the sandbox runtime image is visible to OpenHands
+          # Make sure the sandbox runtime image is visible to OpenHands
           export SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
 
-          echo "Running headless via uvx (python -m openhands.core.main)…"
+          echo "Running headless via uvx …"
           pushd "${REPO_DIR}" >/dev/null
 
-          # Write config.toml: logs + optional Tavily search key when enabled
+          # Minimal config + optional Tavily search
           cat > config.toml <<'TOML'
           [core]
           log_all_events = true
-          # If a search provider key is present below, the agent can use search.
           TOML
 
           if [ "${OH_ENABLE_SEARCH}" = "true" ] && [ -n "${TAVILY_API_KEY:-}" ]; then
-            echo 'search_api_key = "'"${TAVILY_API_KEY}"'"' >> config.toml
+            # Newer builds autodetect Tavily if set here
+            {
+              echo "[search]"
+              echo 'provider = "tavily"'
+              echo 'api_key  = "'"${TAVILY_API_KEY}"'"'
+            } >> config.toml
           fi
 
-          # ✅ Correct headless entrypoint (replaces old 'openhands run' call)
-          uvx --python 3.12 --from openhands python -m openhands.core.main \
-            -f "${PROMPT_FILE}" \
-            -d "$(pwd)"
+          # ✅ Correct headless entrypoint: console script from the openhands-ai package
+          # uvx will fetch the package and run the `openhands` CLI.
+          uvx --python 3.12 --from openhands-ai openhands \
+            --repo "$(pwd)" \
+            --goal-file "${PROMPT_FILE}" \
+            --log-dir "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}"
 
           popd >/dev/null
 
