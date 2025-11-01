@@ -3,251 +3,215 @@ name: OpenHands
 on:
   workflow_dispatch:
     inputs:
-      prompt_template:
-        description: "Template path (in private repo). Leave empty to use raw prompt_file."
-        required: false
-        default: "prompts/country-topic-template.md"
-
       profile_key:
-        description: "Country profile key (e.g., UAE)"
-        required: false
-        default: "UAE"
-
-      prompt_file:
-        description: "RAW prompt path (used if template missing)"
-        required: false
-        default: "prompts/uae-pages.md"
-
-      branch_name:
-        description: "Target branch (created if missing)"
+        description: Country/profile key (e.g. UAE)
         required: true
-        default: "agent/openhands-run"
-
-      llm_provider:
-        description: "LLM provider: openai | openai_compat | grok"
+        default: UAE
+      target_branch:
+        description: Branch to push/PR against
         required: true
-        default: "openai"
-
-      llm_model:
-        description: "Model id (e.g., gpt-4o-mini)"
-        required: true
-        default: "gpt-4o-mini"
-
-      browsing_enabled:
-        description: "Enable in-agent web browsing?"
-        required: true
-        default: "true"
-
-      web_search_enabled:
-        description: "Enable web search?"
-        required: true
-        default: "true"
-
+        default: main
       commit_mode:
-        description: "direct = push to branch, pr = open PR"
+        description: direct | pr
         required: true
-        default: "pr"
+        default: pr
+      llm_provider:
+        description: openai | openai_compat | grok
+        required: true
+        default: openai
+      llm_model:
+        description: e.g. gpt-4o-mini
+        required: true
+        default: gpt-4o-mini
+      enable_browsing:
+        description: true | false
+        required: true
+        default: "true"
+      enable_search:
+        description: true | false (requires Tavily key)
+        required: true
+        default: "true"
+      prompt_template:
+        description: Path to prompt template (in private repo)
+        required: true
+        default: prompts/country-topic-template.md
+      raw_prompt_file:
+        description: Raw prompt (optional, alternative to template)
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  TARGET_REPO: familiarizeptyltd/docs.familiarize.com
+  REPO_DIR: docs_repo
+  AGENT_LOG_DIR: openhands_run
+  OPENHANDS_RUNTIME_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
 
 jobs:
-  openhands:
+  run:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-
-    env:
-      # Paths
-      REPO_DIR: docs_repo
-      AGENT_LOG_DIR: openhands_run
-
-      # Inputs -> env
-      PROMPT_TEMPLATE: ${{ github.event.inputs.prompt_template }}
-      PROFILE_KEY: ${{ github.event.inputs.profile_key }}
-      RAW_PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
-      TARGET_BRANCH: ${{ github.event.inputs.branch_name }}
-      LLM_PROVIDER: ${{ github.event.inputs.llm_provider }}
-      LLM_MODEL: ${{ github.event.inputs.llm_model }}
-      ENABLE_BROWSING: ${{ github.event.inputs.browsing_enabled }}
-      ENABLE_SEARCH: ${{ github.event.inputs.web_search_enabled }}
-      COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
-
-      # OpenHands sandbox runtime (tools/browsing env)
-      SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
-
-      # Target repo for PRs
-      TARGET_REPO: familiarizeptyltd/docs.familiarize.com
-
     steps:
-      - name: Checkout workflows repo (public)
+      - name: Checkout workflows repo
         uses: actions/checkout@v4
 
-      - name: Checkout docs.familiarize.com (private)
+      - name: Checkout private repo
         uses: actions/checkout@v4
         with:
-          repository: familiarizeptyltd/docs.familiarize.com
-          path: docs_repo
+          repository: ${{ env.TARGET_REPO }}
+          path: ${{ env.REPO_DIR }}
           token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0
           submodules: true
 
-      - name: Setup Python (for templating & gh)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install prompt tools
+      - name: Set inputs → env
         run: |
+          echo "PROFILE_KEY=${{ github.event.inputs.profile_key }}" >> $GITHUB_ENV
+          echo "TARGET_BRANCH=${{ github.event.inputs.target_branch }}" >> $GITHUB_ENV
+          echo "COMMIT_MODE=${{ github.event.inputs.commit_mode }}" >> $GITHUB_ENV
+          echo "LLM_PROVIDER=${{ github.event.inputs.llm_provider }}" >> $GITHUB_ENV
+          echo "LLM_MODEL=${{ github.event.inputs.llm_model }}" >> $GITHUB_ENV
+          echo "ENABLE_BROWSING=${{ github.event.inputs.enable_browsing }}" >> $GITHUB_ENV
+          echo "ENABLE_SEARCH=${{ github.event.inputs.enable_search }}" >> $GITHUB_ENV
+          echo "PROMPT_TEMPLATE=${{ github.event.inputs.prompt_template }}" >> $GITHUB_ENV
+          echo "RAW_PROMPT_FILE=${{ github.event.inputs.raw_prompt_file }}" >> $GITHUB_ENV
+
+      - name: Render prompt from template + profiles
+        run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          pip install pygithub
+          pip install jinja2
+          mkdir -p "${REPO_DIR}/.agent"
+          # Simple Jinja renderer inline
+          python - << 'PY'
+          import json, os, pathlib
+          from jinja2 import Template
+          repo = os.environ["REPO_DIR"]
+          profile_key = os.environ["PROFILE_KEY"]
+          tpl_path = pathlib.Path(repo) / os.environ["PROMPT_TEMPLATE"]
+          # NOTE: you renamed the file to country-profiles.json
+          profiles_path = pathlib.Path(repo) / "prompts" / "country-profiles.json"
+          out_path = pathlib.Path(repo) / ".agent" / "rendered_prompt.md"
+          data = json.loads(profiles_path.read_text(encoding="utf-8"))
+          ctx = data[profile_key]
+          t = Template(tpl_path.read_text(encoding="utf-8"))
+          out_path.write_text(t.render(**ctx), encoding="utf-8")
+          print(f"Wrote {out_path}")
+          PY
+          echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
 
-      # ---------- Prompt: template -> .agent/rendered_prompt.md (or raw fallback) ----------
-      - name: Resolve prompt (template → raw fallback)
-        run: |
-          set -euo pipefail
-
-          TEMPLATE_PATH="${REPO_DIR}/${PROMPT_TEMPLATE}"
-          PROFILES_NEW="${REPO_DIR}/prompts/country-profiles.json"
-          PROFILES_OLD="${REPO_DIR}/prompts/country_profiles.json"
-          RAW_PATH="${REPO_DIR}/${RAW_PROMPT_FILE}"
-
-          if   [ -f "${PROFILES_NEW}" ]; then PROFILES_PATH="${PROFILES_NEW}"
-          elif [ -f "${PROFILES_OLD}" ]; then PROFILES_PATH="${PROFILES_OLD}"
-          else PROFILES_PATH=""
-          fi
-
-          use_template=false
-          if [ -n "${PROMPT_TEMPLATE}" ] && [ -f "${TEMPLATE_PATH}" ] && [ -n "${PROFILES_PATH}" ]; then
-            use_template=true
-          fi
-
-          if $use_template; then
-            echo "Using template: ${TEMPLATE_PATH} (profile=${PROFILE_KEY}) with ${PROFILES_PATH}"
-            python scripts/render_prompt.py \
-              --profiles "${PROFILES_PATH}" \
-              --profile-key "${PROFILE_KEY}" \
-              --template   "${TEMPLATE_PATH}" \
-              --output     "${REPO_DIR}/.agent/rendered_prompt.md"
-            echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
-          else
-            echo "Template/profiles missing. Falling back to RAW: ${RAW_PATH}"
-            if [ ! -f "${RAW_PATH}" ]; then
-              echo "❌ Missing inputs. Expected one of:"
-              echo "  - ${TEMPLATE_PATH} AND ( ${PROFILES_NEW} OR ${PROFILES_OLD} )"
-              echo "  - ${RAW_PATH}"
-              exit 1
-            fi
-            echo "PROMPT_FILE=${RAW_PROMPT_FILE}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Validate prompt path
-        run: |
-          set -euo pipefail
-          test -f "${REPO_DIR}/${PROMPT_FILE}" || (echo "❌ Prompt not found: ${REPO_DIR}/${PROMPT_FILE}"; exit 1)
-
-      - name: Configure Git user
-        working-directory: ${{ env.REPO_DIR }}
-        run: |
-          git config user.name  "ci-agent"
-          git config user.email "ci-agent@users.noreply.github.com"
-
-      - name: Create/switch branch
-        working-directory: ${{ env.REPO_DIR }}
-        run: |
-          set -euo pipefail
-          if git rev-parse --verify "${TARGET_BRANCH}" >/dev/null 2>&1; then
-            git checkout "${TARGET_BRANCH}"
-          else
-            git checkout -b "${TARGET_BRANCH}"
-          fi
-
-      # ---------- Install UV and run OpenHands via `uvx` (recommended) ----------
-      - name: Install uv (Astral)
+      - name: Install uv (recommended by OpenHands docs)
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Pull sandbox runtime image (faster first run)
-        run: docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
+      - name: Pre-pull runtime container (faster cold start)
+        run: docker pull "${OPENHANDS_RUNTIME_IMAGE}"
 
-      - name: Run OpenHands (headless CLI via uvx)
+      - name: Prepare OpenHands config (optional Tavily search key)
+        run: |
+          set -euo pipefail
+          mkdir -p .openhands
+          # Write config.toml next to the working dir we will run from (repo root)
+          cat > "${REPO_DIR}/config.toml" <<'TOML'
+          [core]
+          # If set, enables Tavily search engine
+          # search_api_key = ""
+          # Log all events for debugging
+          log_all_events = true
+          [agent]
+          # Browsing can be allowed; the agent decides when to use it
+          enable_browsing = true
+          TOML
+          if [ -n "${{ secrets.TAVILY_API_KEY || '' }}" ] && [ "${ENABLE_SEARCH}" = "true" ]; then
+            # Inject Tavily key
+            sed -i "s|# search_api_key = \"\"|search_api_key = \"${{ secrets.TAVILY_API_KEY }}\"|g" "${REPO_DIR}/config.toml"
+          fi
+
+      - name: Map LLM provider → env
+        run: |
+          set -euo pipefail
+          case "${LLM_PROVIDER}" in
+            openai)
+              echo "LLM_MODEL=${LLM_MODEL}" >> $GITHUB_ENV
+              echo "LLM_API_KEY=${OPENAI_API_KEY}" >> $GITHUB_ENV
+              ;;
+            openai_compat)
+              # OpenHands reads LLM_* vars; we also set OPENAI_* for downstream tools
+              echo "LLM_MODEL=${LLM_MODEL}" >> $GITHUB_ENV
+              echo "LLM_API_KEY=${OPENAI_COMPAT_API_KEY}" >> $GITHUB_ENV
+              echo "LLM_BASE_URL=${OPENAI_COMPAT_BASE_URL}" >> $GITHUB_ENV
+              ;;
+            grok)
+              echo "LLM_MODEL=${LLM_MODEL}" >> $GITHUB_ENV
+              echo "LLM_API_KEY=${GROK_API_KEY}" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
+          esac
         env:
-          # LLM secrets (set what you use)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
 
-          # Feature toggles
-          OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
-          OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
-
-          # Sandbox runtime (used by OpenHands to spawn containers/tools)
-          SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
+      - name: Run OpenHands (headless; correct entrypoint)
         run: |
           set -euo pipefail
+          echo "Running headless via uvx (python -m openhands.core.main)…"
+          # OpenHands will spawn the sandbox runtime using Docker; we provide the image and mount current workspace.
+          export SANDBOX_RUNTIME_CONTAINER_IMAGE="${OPENHANDS_RUNTIME_IMAGE}"
+          export LOG_ALL_EVENTS=true
+          # Optional hints for the agent:
+          [ "${ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
+          # Execute from within the repo dir so it picks up config.toml and mounts the workspace correctly
+          pushd "${REPO_DIR}" >/dev/null
+          uvx --python 3.12 python -m openhands.core.main \
+            -f "${PROMPT_FILE}" \
+            -d "$(pwd)"
+          popd >/dev/null
 
-          case "${LLM_PROVIDER}" in
-            openai)
-              export OPENAI_MODEL="${LLM_MODEL}"
-              ;;
-            openai_compat)
-              export OPENAI_MODEL="${LLM_MODEL}"
-              export OPENAI_API_KEY="${OPENAI_COMPAT_API_KEY}"
-              export OPENAI_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
-              ;;
-            grok)
-              export GROK_MODEL="${LLM_MODEL}"
-              ;;
-            *)
-              echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
-          esac
-
-          echo "Running OpenHands headless via uvx…"
-          # README recommends the UV launcher for CLI runs
-          uvx --python 3.12 openhands run \
-            --repo "${REPO_DIR}" \
-            --goal-file "${REPO_DIR}/${PROMPT_FILE}" \
-            --logs "${AGENT_LOG_DIR}"
-
-      - name: Show agent outputs (if any)
-        if: always()
+      - name: Show agent logs (if any)
         run: |
           echo "------- Agent output dir -------"
           ls -la "${AGENT_LOG_DIR}" || true
 
-      - name: Commit changes (if any)
+      - name: Commit changes
         working-directory: ${{ env.REPO_DIR }}
         run: |
           set -euo pipefail
+          git checkout -B "${TARGET_BRANCH}"
           git add -A
           if git diff --cached --quiet; then
             echo "ℹ️ No changes to commit."
             exit 0
           fi
-          git commit -m "OpenHands agent: apply changes from ${PROMPT_FILE}"
+          git -c user.name="actions-bot" -c user.email="actions@users.noreply.github.com" \
+            commit -m "OpenHands agent: apply changes from ${PROMPT_FILE}"
 
-      - name: Push branch
+      - name: Push
+        if: success()
         working-directory: ${{ env.REPO_DIR }}
         env:
           GIT_ASKPASS: /bin/echo
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
-          set -euo pipefail
           git push --set-upstream origin "${TARGET_BRANCH}"
 
-      - name: Create PR (if requested)
-        if: ${{ github.event.inputs.commit_mode == 'pr' }}
+      - name: Open PR (when commit_mode = pr)
+        if: success() && env.COMMIT_MODE == 'pr'
         env:
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
-          set -euo pipefail
           gh pr create \
             --repo "${TARGET_REPO}" \
             --head "${TARGET_BRANCH}" \
             --base "main" \
             --title "OpenHands: ${PROMPT_FILE}" \
-            --body "$(printf "Automated changes by OpenHands agent.\n\nPrompt: \`%s\`\nBrowsing: \`%s\`, Search: \`%s\`\nModel: \`%s/%s\`" "${PROMPT_FILE}" "${ENABLE_BROWSING}" "${ENABLE_SEARCH}" "${LLM_PROVIDER}" "${LLM_MODEL}")" \
-          || echo "ℹ️ PR may already exist or token lacks PR scope."
+            --body "$(printf "Automated changes by OpenHands agent.\n\nPrompt: \`%s\`\nBrowsing: \`%s\`, Search: \`%s\`\nModel: \`%s\`" "${PROMPT_FILE}" "${ENABLE_BROWSING}" "${ENABLE_SEARCH}" "${LLM_MODEL}")" \
+          || echo "ℹ️ PR may already exist or token lacks pull_request scope."
 
       - name: Upload artifacts
         if: always()
