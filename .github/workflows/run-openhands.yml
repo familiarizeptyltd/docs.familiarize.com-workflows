@@ -185,7 +185,7 @@ jobs:
           OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
           OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
 
-          # Tavily (search backend)
+          # Tavily search
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
           # Images
@@ -193,16 +193,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Map provider -> env that OpenHands reads
+          # Map provider -> env variables consumed by OpenHands
           case "${LLM_PROVIDER}" in
             openai)
               export LLM_PROVIDER="openai"
-              export LLM_MODEL="openai/${LLM_MODEL}"    # headless likes provider/model
+              export LLM_MODEL="${LLM_MODEL}"
               export LLM_API_KEY="${OPENAI_API_KEY}"
               ;;
             openai_compat)
               export LLM_PROVIDER="openai"
-              export LLM_MODEL="openai/${LLM_MODEL}"
+              export LLM_MODEL="${LLM_MODEL}"
               export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"
               export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
               ;;
@@ -215,38 +215,39 @@ jobs:
               echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
           esac
 
-          # Optional browsing hint (agent chooses if/when to use browser)
+          # Optional browsing hint
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
 
-          # Ensure goal file exists before starting container
-          if [ ! -f "${REPO_DIR}/${PROMPT_FILE}" ]; then
-            echo "❌ Missing goal file: ${REPO_DIR}/${PROMPT_FILE}"
+          # Ensure logs and state dirs on the host
+          mkdir -p "${AGENT_LOG_DIR}"
+          mkdir -p "${GITHUB_WORKSPACE}/.openhands"
+          chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
+
+          # Preflight on host: verify the goal file exists & show its details
+          HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
+          if [ ! -f "${HOST_GOAL}" ]; then
+            echo "❌ Missing goal file on host: ${HOST_GOAL}"
+            echo "Contents of ${REPO_DIR}/:"
             ls -la "${REPO_DIR}" || true
             exit 1
           fi
+          echo "✅ Found goal on host: ${HOST_GOAL}"
+          ls -la "${REPO_DIR}/.agent" || true
 
-          # Host state dirs (avoid permission errors like /.openhands/.jwt_secret)
-          mkdir -p "${GITHUB_WORKSPACE}/.openhands" "${AGENT_LOG_DIR}"
-          chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
-
-          # Let app pass the mount into the runtime via env (per docs)
-          export SANDBOX_VOLUMES="${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace:rw"
-
-          # Log everything via ENV (per docs) – do NOT write repo config.toml
-          export LOG_ALL_EVENTS=true
-
-          # Absolute path to the goal file inside container
+          # Absolute path used inside the container
           GOAL_ABS="/workspace/${PROMPT_FILE}"
 
-          # Add a wall-clock safety timeout so jobs cannot loop forever
-          # Also cap agent iterations with -i (stop condition)
-          timeout 45m \
+          # Run the headless app; set working dir to /workspace so relative paths resolve;
+          # also add an inline preflight *inside* the container to fail fast if the mount is wrong.
           docker run --rm \
             --pull=always \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
+            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
+            -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
+            -w /workspace \
             -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
             -e SANDBOX_USER_ID="$(id -u)" \
-            -e SANDBOX_VOLUMES="${SANDBOX_VOLUMES}" \
-            -e LOG_ALL_EVENTS="${LOG_ALL_EVENTS}" \
             -e LLM_PROVIDER="${LLM_PROVIDER}" \
             -e LLM_MODEL="${LLM_MODEL}" \
             -e LLM_API_KEY="${LLM_API_KEY}" \
@@ -254,15 +255,18 @@ jobs:
             -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
             -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
-            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
             --add-host host.docker.internal:host-gateway \
             docker.openhands.dev/openhands/openhands:0.60 \
-              python -m openhands.core.main \
-                -f "${GOAL_ABS}" \
-                -d "/workspace" \
-                -i 60
+              bash -lc 'set -euo pipefail;
+                        if [ ! -f "'"${GOAL_ABS}"'" ]; then
+                          echo "❌ Goal not visible inside container: '"${GOAL_ABS}"'";
+                          echo "Listing /workspace and /.agent:";
+                          ls -la /workspace || true;
+                          ls -la /workspace/.agent || true;
+                          exit 1;
+                        fi;
+                        echo "✅ Goal visible inside container: '"${GOAL_ABS}"'";
+                        python -m openhands.core.main -f "'"${GOAL_ABS}"'" -d "/workspace"'
 
       - name: Show agent outputs (if any)
         if: always()
