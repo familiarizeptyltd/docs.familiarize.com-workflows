@@ -190,23 +190,19 @@ jobs:
 
           # Images
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
-
-          # Needed if the agent will perform repo ops (clone/push/PR) inside itself
-          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
           set -euo pipefail
 
-          # Map provider -> required env for OpenHands headless
+          # Map provider -> env variables consumed by OpenHands
           case "${LLM_PROVIDER}" in
             openai)
               export LLM_PROVIDER="openai"
-              # Headless prefers full "provider/model" form; safe fallback is plain model.
-              export LLM_MODEL="openai/${LLM_MODEL}"
+              export LLM_MODEL="${LLM_MODEL}"
               export LLM_API_KEY="${OPENAI_API_KEY}"
               ;;
             openai_compat)
               export LLM_PROVIDER="openai"
-              export LLM_MODEL="openai/${LLM_MODEL}"
+              export LLM_MODEL="${LLM_MODEL}"
               export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"
               export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
               ;;
@@ -222,49 +218,34 @@ jobs:
           # Optional browsing hint
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
 
-          # Create minimal config (logs on) and enable Tavily if requested
-          cat > "${REPO_DIR}/config.toml" <<'TOML'
-          [core]
-          log_all_events = true
-          TOML
-          if [ "${OH_ENABLE_SEARCH}" = "true" ] && [ -n "${TAVILY_API_KEY:-}" ]; then
-            {
-              echo "[search]"
-              echo 'provider = "tavily"'
-              echo 'api_key  = "'"${TAVILY_API_KEY}"'"'
-            } >> "${REPO_DIR}/config.toml"
-          fi
-
-          # Ensure logs dir
+          # Ensure logs and state dirs on the host
           mkdir -p "${AGENT_LOG_DIR}"
+          # State dir that the container expects as /.openhands
+          mkdir -p "${GITHUB_WORKSPACE}/.openhands"
+          chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
 
-          # Per official docs, set SANDBOX_VOLUMES and SANDBOX_USER_ID and mount docker.sock
-          export SANDBOX_VOLUMES="${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace:rw"
-
+          # Pass a RW mount for /.openhands to avoid permission errors
+          # Also pass the repo mount; runtime uses docker.sock to spawn its sandbox container
           docker run --rm \
             --pull=always \
             -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
             -e SANDBOX_USER_ID="$(id -u)" \
-            -e SANDBOX_VOLUMES="${SANDBOX_VOLUMES}" \
-            -e LLM_API_KEY="${LLM_API_KEY}" \
+            -e LLM_PROVIDER="${LLM_PROVIDER}" \
             -e LLM_MODEL="${LLM_MODEL}" \
-            -e GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
-            -e LOG_ALL_EVENTS=true \
+            -e LLM_API_KEY="${LLM_API_KEY}" \
+            -e LLM_BASE_URL="${LLM_BASE_URL:-}" \
             -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
             -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
-            -e LLM_BASE_URL="${LLM_BASE_URL:-}" \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
+            -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
             --add-host host.docker.internal:host-gateway \
-            --name openhands-app-$(date +%Y%m%d%H%M%S) \
             docker.openhands.dev/openhands/openhands:0.60 \
-            python -m openhands.core.main \
-              -f "${PROMPT_FILE}" \
-              -d "/workspace" \
-              --config "/workspace/config.toml"
+              python -m openhands.core.main \
+                -f "${PROMPT_FILE}" \
+                -d "/workspace"
 
       - name: Show agent outputs (if any)
         if: always()
