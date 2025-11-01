@@ -164,7 +164,8 @@ jobs:
       - name: Install uv (Astral)
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Pull sandbox runtime image (faster first run)
         run: docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
