@@ -3,19 +3,18 @@ name: OpenHands
 on:
   workflow_dispatch:
     inputs:
-      # Use EITHER the template+profile or a raw prompt file.
       prompt_template:
-        description: "Template path in private repo (e.g., prompts/country-topic-template.md). Leave empty to use raw prompt_file."
+        description: "Template path (in private repo). Leave empty to use raw prompt_file."
         required: false
         default: "prompts/country-topic-template.md"
 
       profile_key:
-        description: "Country profile key (e.g., UAE, SG, UK). Ignored if template is empty."
+        description: "Country profile key (e.g., UAE)"
         required: false
         default: "UAE"
 
       prompt_file:
-        description: "RAW prompt path in private repo (used only when template is empty), e.g., prompts/uae-pages.md"
+        description: "RAW prompt path (used if template missing)"
         required: false
         default: "prompts/uae-pages.md"
 
@@ -30,7 +29,7 @@ on:
         default: "openai"
 
       llm_model:
-        description: "Model id (e.g., gpt-4o-mini, gpt-4.1-mini, grok-2-mini, or your compat id)"
+        description: "Model id (e.g., gpt-4o-mini)"
         required: true
         default: "gpt-4o-mini"
 
@@ -57,11 +56,11 @@ jobs:
       pull-requests: write
 
     env:
-      # Repo paths
+      # Paths
       REPO_DIR: docs_repo
       AGENT_LOG_DIR: openhands_run
 
-      # Inputs → env
+      # Inputs -> env
       PROMPT_TEMPLATE: ${{ github.event.inputs.prompt_template }}
       PROFILE_KEY: ${{ github.event.inputs.profile_key }}
       RAW_PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
@@ -72,10 +71,10 @@ jobs:
       ENABLE_SEARCH: ${{ github.event.inputs.web_search_enabled }}
       COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
 
-      # OpenHands sandbox runtime image (required for tools/browsing)
+      # OpenHands sandbox runtime (tools/browsing env)
       SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
 
-      # Target repo for PR creation
+      # Target repo for PRs
       TARGET_REPO: familiarizeptyltd/docs.familiarize.com
 
     steps:
@@ -91,22 +90,17 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Setup Python (templating + CLI)
+      - name: Setup Python (for templating & gh)
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install OpenHands CLI
+      - name: Install prompt tools
         run: |
           python -m pip install --upgrade pip
-          # Headless CLI package
-          pip install openhands-ai
-          # Small helper
           pip install pygithub
 
-      # -------------------------
-      # Resolve template vs raw
-      # -------------------------
+      # ---------- Prompt: template -> .agent/rendered_prompt.md (or raw fallback) ----------
       - name: Resolve prompt (template → raw fallback)
         run: |
           set -euo pipefail
@@ -116,7 +110,6 @@ jobs:
           PROFILES_OLD="${REPO_DIR}/prompts/country_profiles.json"
           RAW_PATH="${REPO_DIR}/${RAW_PROMPT_FILE}"
 
-          # Decide which profiles filename exists
           if   [ -f "${PROFILES_NEW}" ]; then PROFILES_PATH="${PROFILES_NEW}"
           elif [ -f "${PROFILES_OLD}" ]; then PROFILES_PATH="${PROFILES_OLD}"
           else PROFILES_PATH=""
@@ -128,7 +121,7 @@ jobs:
           fi
 
           if $use_template; then
-            echo "Using template: ${TEMPLATE_PATH} with profiles: ${PROFILES_PATH} (profile_key=${PROFILE_KEY})"
+            echo "Using template: ${TEMPLATE_PATH} (profile=${PROFILE_KEY}) with ${PROFILES_PATH}"
             python scripts/render_prompt.py \
               --profiles "${PROFILES_PATH}" \
               --profile-key "${PROFILE_KEY}" \
@@ -136,7 +129,7 @@ jobs:
               --output     "${REPO_DIR}/.agent/rendered_prompt.md"
             echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
           else
-            echo "Template/profiles missing. Falling back to RAW prompt: ${RAW_PATH}"
+            echo "Template/profiles missing. Falling back to RAW: ${RAW_PATH}"
             if [ ! -f "${RAW_PATH}" ]; then
               echo "❌ Missing inputs. Expected one of:"
               echo "  - ${TEMPLATE_PATH} AND ( ${PROFILES_NEW} OR ${PROFILES_OLD} )"
@@ -149,10 +142,7 @@ jobs:
       - name: Validate prompt path
         run: |
           set -euo pipefail
-          if [ ! -f "${REPO_DIR}/${PROMPT_FILE}" ]; then
-            echo "❌ Prompt file not found: ${REPO_DIR}/${PROMPT_FILE}"
-            exit 1
-          fi
+          test -f "${REPO_DIR}/${PROMPT_FILE}" || (echo "❌ Prompt not found: ${REPO_DIR}/${PROMPT_FILE}"; exit 1)
 
       - name: Configure Git user
         working-directory: ${{ env.REPO_DIR }}
@@ -170,17 +160,18 @@ jobs:
             git checkout -b "${TARGET_BRANCH}"
           fi
 
-      # ================================
-      #  Headless OpenHands CLI
-      # ================================
-      - name: Pull sandbox runtime image (faster first run)
+      # ---------- Install UV and run OpenHands via `uvx` (recommended) ----------
+      - name: Install uv (Astral)
         run: |
-          set -euo pipefail
-          docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Run OpenHands (headless CLI)
+      - name: Pull sandbox runtime image (faster first run)
+        run: docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
+
+      - name: Run OpenHands (headless CLI via uvx)
         env:
-          # LLM creds (set the ones you use as repo secrets)
+          # LLM secrets (set what you use)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
@@ -190,16 +181,14 @@ jobs:
           OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
           OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
 
-          # Sandbox runtime image for tools/browsing
+          # Sandbox runtime (used by OpenHands to spawn containers/tools)
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
         run: |
           set -euo pipefail
 
-          # Map provider → env OpenHands expects
           case "${LLM_PROVIDER}" in
             openai)
               export OPENAI_MODEL="${LLM_MODEL}"
-              # OPENAI_API_KEY already from secrets
               ;;
             openai_compat)
               export OPENAI_MODEL="${LLM_MODEL}"
@@ -208,21 +197,19 @@ jobs:
               ;;
             grok)
               export GROK_MODEL="${LLM_MODEL}"
-              # GROK_API_KEY already from secrets
               ;;
             *)
-              echo "Unsupported LLM provider: ${LLM_PROVIDER}"
-              exit 1
-              ;;
+              echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
           esac
 
-          echo "Running OpenHands headless…"
-          openhands run \
+          echo "Running OpenHands headless via uvx…"
+          # README recommends the UV launcher for CLI runs
+          uvx --python 3.12 openhands run \
             --repo "${REPO_DIR}" \
             --goal-file "${REPO_DIR}/${PROMPT_FILE}" \
             --logs "${AGENT_LOG_DIR}"
 
-      - name: Show agent outputs
+      - name: Show agent outputs (if any)
         if: always()
         run: |
           echo "------- Agent output dir -------"
@@ -260,7 +247,7 @@ jobs:
             --base "main" \
             --title "OpenHands: ${PROMPT_FILE}" \
             --body "$(printf "Automated changes by OpenHands agent.\n\nPrompt: \`%s\`\nBrowsing: \`%s\`, Search: \`%s\`\nModel: \`%s/%s\`" "${PROMPT_FILE}" "${ENABLE_BROWSING}" "${ENABLE_SEARCH}" "${LLM_PROVIDER}" "${LLM_MODEL}")" \
-          || echo "ℹ️ PR may already exist or the token lacks PR scope."
+          || echo "ℹ️ PR may already exist or token lacks PR scope."
 
       - name: Upload artifacts
         if: always()
