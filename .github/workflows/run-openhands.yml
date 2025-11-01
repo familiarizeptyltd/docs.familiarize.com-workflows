@@ -215,10 +215,10 @@ jobs:
               echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
           esac
 
-          # Browsing/search toggles passed through; agent chooses when to use them
+          # Browsing hint (agent decides usage)
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
 
-          # Create a tiny config that enables logs and (optionally) Tavily
+          # Create config.toml (logs + optional Tavily)
           cat > "${REPO_DIR}/config.toml" <<'TOML'
           [core]
           log_all_events = true
@@ -231,14 +231,11 @@ jobs:
             } >> "${REPO_DIR}/config.toml"
           fi
 
-          # Ensure logs dir exists (for artifact upload later)
           mkdir -p "${AGENT_LOG_DIR}"
 
-          # Run the headless CLI inside the OpenHands app image
-          # - Mount the repo as /workspace
-          # - Pass LLM + search + sandbox envs through
-          # - Use `serve --headless` with goal file & repo dir
+          # Run OpenHands from the app image; allow it to launch the sandbox via the host Docker
           docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
             -w /workspace \
@@ -251,11 +248,11 @@ jobs:
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
             -e SANDBOX_RUNTIME_CONTAINER_IMAGE \
             docker.openhands.dev/openhands/openhands:0.60 \
-              openhands serve --headless \
+              python -m openhands.cli.main serve --headless \
                 --repo "/workspace" \
                 --goal-file "${PROMPT_FILE}" \
-                --log-dir "/logs"
-
+                --log-dir "/logs" \
+                --config "/workspace/config.toml"
 
       - name: Show agent outputs (if any)
         if: always()
