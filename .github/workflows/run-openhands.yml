@@ -173,7 +173,7 @@ jobs:
       - name: Pull OpenHands app image (CLI)
         run: docker pull docker.openhands.dev/openhands/openhands:0.60
 
-      - name: Run OpenHands (docker headless; with Tavily search)
+      - name: Run OpenHands (headless via openhands-cli + Tavily)
         env:
           # LLM secrets
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -185,29 +185,29 @@ jobs:
           OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
           OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
 
-          # Tavily search
+          # Tavily search (optional)
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
-          # Images
+          # Sandbox runtime container used by OpenHands (browsing/tools)
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
         run: |
           set -euo pipefail
 
-          # Map provider -> LLM_* env variables consumed by OpenHands
+          # Map provider -> LLM_* env that the CLI reads
           case "${LLM_PROVIDER}" in
             openai)
-              export LLM_PROVIDER=openai
+              export LLM_PROVIDER="openai"
               export LLM_MODEL="${LLM_MODEL}"
               export LLM_API_KEY="${OPENAI_API_KEY}"
               ;;
             openai_compat)
-              export LLM_PROVIDER=openai
+              export LLM_PROVIDER="openai"
               export LLM_MODEL="${LLM_MODEL}"
               export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"
               export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
               ;;
             grok)
-              export LLM_PROVIDER=grok
+              export LLM_PROVIDER="grok"
               export LLM_MODEL="${LLM_MODEL}"
               export LLM_API_KEY="${GROK_API_KEY}"
               ;;
@@ -215,10 +215,11 @@ jobs:
               echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
           esac
 
-          # Browsing hint (agent decides usage)
+          # Optional browsing hint (agent decides when to use it)
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
 
-          # Create config.toml (logs + optional Tavily)
+          # Minimal config + optional Tavily search
+          mkdir -p "${REPO_DIR}"
           cat > "${REPO_DIR}/config.toml" <<'TOML'
           [core]
           log_all_events = true
@@ -231,28 +232,37 @@ jobs:
             } >> "${REPO_DIR}/config.toml"
           fi
 
+          # Ensure logs dir exists (for artifact upload later)
           mkdir -p "${AGENT_LOG_DIR}"
 
-          # Run OpenHands from the app image; allow it to launch the sandbox via the host Docker
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
-            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
-            -w /workspace \
-            -e LLM_PROVIDER \
-            -e LLM_MODEL \
-            -e LLM_API_KEY \
-            -e LLM_BASE_URL="${LLM_BASE_URL:-}" \
-            -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
-            -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
-            -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
-            -e SANDBOX_RUNTIME_CONTAINER_IMAGE \
-            docker.openhands.dev/openhands/openhands:0.60 \
-              python -m openhands.cli.main serve --headless \
-                --repo "/workspace" \
-                --goal-file "${PROMPT_FILE}" \
-                --log-dir "/logs" \
-                --config "/workspace/config.toml"
+          # --- Run the official CLI from the openhands-cli package via uvx ---
+          pushd "${REPO_DIR}" >/dev/null
+
+          run_cli () {
+            # $1 is the command tail after the cli name
+            echo "+ trying: uvx --python 3.12 --from openhands-cli $1"
+            if uvx --python 3.12 --from openhands-cli $1; then
+              return 0
+            fi
+            return 1
+          }
+
+          # Try known entrypoints in order:
+          # 1) 'oh' (most common), 2) 'openhands' (alias), 3) module fallback
+          CMD_ARGS="--repo \"$(pwd)\" --goal-file \"${PROMPT_FILE}\" --log-dir \"${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}\" --config \"$(pwd)/config.toml\""
+
+          run_cli "oh run ${CMD_ARGS}" ||
+          run_cli "openhands run ${CMD_ARGS}" ||
+          uvx --python 3.12 --from openhands-cli python -m openhands_cli.main run \
+            --repo "$(pwd)" \
+            --goal-file "${PROMPT_FILE}" \
+            --log-dir "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}" \
+            --config "$(pwd)/config.toml" || {
+              echo "❌ Could not locate a working OpenHands CLI entrypoint (oh/openhands/module)."
+              exit 1
+            }
+
+          popd >/dev/null
 
       - name: Show agent outputs (if any)
         if: always()
