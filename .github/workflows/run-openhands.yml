@@ -229,7 +229,7 @@ jobs:
           fi
 
           # ✅ Correct headless entrypoint (replaces old 'openhands run' call)
-          uvx --python 3.12 python -m openhands.core.main \
+          uvx --python 3.12 --from openhands python -m openhands.core.main \
             -f "${PROMPT_FILE}" \
             -d "$(pwd)"
 
