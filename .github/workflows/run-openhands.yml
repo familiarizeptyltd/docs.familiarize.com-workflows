@@ -160,18 +160,18 @@ jobs:
             git checkout -b "${TARGET_BRANCH}"
           fi
 
-      # ---------- Install UV and run OpenHands via `uvx` (recommended) ----------
+      # ---------- Install UV and run OpenHands via `uvx` (headless) ----------
       - name: Install uv (Astral)
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Pull sandbox runtime image (faster first run)
         run: docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
 
-      - name: Run OpenHands (headless CLI via uvx)
+      - name: Run OpenHands (headless; with Tavily search)
         env:
-          # LLM secrets (set what you use)
+          # LLM secrets
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
@@ -181,11 +181,15 @@ jobs:
           OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
           OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
 
+          # Tavily (search backend)
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+
           # Sandbox runtime (used by OpenHands to spawn containers/tools)
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
         run: |
           set -euo pipefail
 
+          # Map provider -> the LLM_* env that headless OpenHands reads
           case "${LLM_PROVIDER}" in
             openai)
               export LLM_MODEL="${LLM_MODEL}"
@@ -204,34 +208,32 @@ jobs:
               echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
           esac
 
-          # Hint to allow browsing (agent decides when to use it)
+          # Browsing hint (agent decides usage)
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
-      
+
           # Ensure the sandbox runtime image is visible to OpenHands
           export SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
-      
+
           echo "Running headless via uvx (python -m openhands.core.main)…"
           pushd "${REPO_DIR}" >/dev/null
-      
-          # Minimal config; keep logs verbose. (Search stays off unless you add a provider.)
+
+          # Write config.toml: logs + optional Tavily search key when enabled
           cat > config.toml <<'TOML'
           [core]
           log_all_events = true
+          # If a search provider key is present below, the agent can use search.
           TOML
-      
-          # ✅ Correct headless entrypoint (previous 'openhands run' is invalid)
+
+          if [ "${OH_ENABLE_SEARCH}" = "true" ] && [ -n "${TAVILY_API_KEY:-}" ]; then
+            echo 'search_api_key = "'"${TAVILY_API_KEY}"'"' >> config.toml
+          fi
+
+          # ✅ Correct headless entrypoint (replaces old 'openhands run' call)
           uvx --python 3.12 python -m openhands.core.main \
             -f "${PROMPT_FILE}" \
             -d "$(pwd)"
-      
-          popd >/dev/null
 
-          echo "Running OpenHands headless via uvx…"
-          # README recommends the UV launcher for CLI runs
-          uvx --python 3.12 openhands run \
-            --repo "${REPO_DIR}" \
-            --goal-file "${REPO_DIR}/${PROMPT_FILE}" \
-            --logs "${AGENT_LOG_DIR}"
+          popd >/dev/null
 
       - name: Show agent outputs (if any)
         if: always()
