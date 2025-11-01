@@ -160,6 +160,18 @@ jobs:
             git checkout -b "${TARGET_BRANCH}"
           fi
 
+      # ---------- Ensure UAE directories exist ----------
+      - name: Create UAE content directories
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          mkdir -p content/en/family-office/uae
+          mkdir -p content/en/risk-management/uae
+          mkdir -p content/en/wealth-management/uae
+          echo "✅ Created UAE directories"
+          ls -la content/en/family-office/ || true
+          ls -la content/en/risk-management/ || true
+          ls -la content/en/wealth-management/ || true
+
       # ---------- Install UV and run OpenHands via `uvx` (headless) ----------
       - name: Install uv (Astral)
         run: |
@@ -193,8 +205,8 @@ jobs:
       
           # Quieter logs and sane caps
           OPENHANDS_LOG_LEVEL: warning
-          OPENHANDS_MAX_STEPS: "60"
-          OPENHANDS_HARD_TIMEOUT_SEC: "1200"
+          OPENHANDS_MAX_STEPS: "80"
+          OPENHANDS_HARD_TIMEOUT_SEC: "1800"
         run: |
             set -euo pipefail
       
@@ -239,26 +251,30 @@ jobs:
             
             # Paths the app will use inside the container
             GOAL_ABS="/workspace/${PROMPT_FILE}"
-            OPENHANDS_CFG_DIR="${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands"
+            OPENHANDS_CFG_DIR="${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands-agent"
             mkdir -p "${OPENHANDS_CFG_DIR}"
             
-            # === CRITICAL: OpenHands config so it doesn't parse Hugo's config.toml ===
+            # === CRITICAL: OpenHands config (renamed to avoid Hugo conflict) ===
             cat > "${OPENHANDS_CFG_DIR}/config.toml" <<'TOML'
             [core]
             agent = "CodeActAgent"
-            max_steps = 60
-            hard_timeout_sec = 1200
+            max_steps = 80
+            hard_timeout_sec = 1800
             enable_browsing = true
             enable_search = true
             
             [workspace]
             root = "/workspace"
             write_whitelist_globs = [
-              "content/**",
+              "content/**/*.md",
+              "content/en/**/*.md",
+              "content/en/family-office/**/*.md",
+              "content/en/risk-management/**/*.md",
+              "content/en/wealth-management/**/*.md",
               "themes/**",
               ".agent/**",
               ".env",
-              ".openhands/**",
+              ".openhands-agent/**",
               "static/**",
               "*.md"
             ]
@@ -297,40 +313,56 @@ jobs:
               -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
               -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
               -e OPENHANDS_LOG_LEVEL="${OPENHANDS_LOG_LEVEL:-warning}" \
-              -e OPENHANDS_MAX_STEPS="${OPENHANDS_MAX_STEPS:-60}" \
-              -e OPENHANDS_HARD_TIMEOUT_SEC="${OPENHANDS_HARD_TIMEOUT_SEC:-1200}" \
+              -e OPENHANDS_MAX_STEPS="${OPENHANDS_MAX_STEPS:-80}" \
+              -e OPENHANDS_HARD_TIMEOUT_SEC="${OPENHANDS_HARD_TIMEOUT_SEC:-1800}" \
               -e GOAL_ABS="${GOAL_ABS}" \
-              -e OPENHANDS_CONFIG="/workspace/.openhands/config.toml" \
+              -e OPENHANDS_CONFIG="/workspace/.openhands-agent/config.toml" \
               docker.openhands.dev/openhands/openhands:0.60 \
                 bash -lc 'set -euo pipefail
-            VENV_PY="/app/.venv/bin/python"
-            
-            # 0) Goal visible?
-            if [ ! -f "$GOAL_ABS" ]; then
-              echo "❌ Goal not visible: $GOAL_ABS"
-              ls -la /workspace || true
-              ls -la /workspace/.agent || true
-              exit 1
-            fi
-            echo "✅ Goal visible: $GOAL_ABS"
-            
-            # 1) Ensure python-dotenv (openhands.agenthub may import it)
-            "$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv
-            
-            # 2) Sanity print: show OpenHands config it will use
-            echo "---- /workspace/.openhands/config.toml ----"
-            sed -E "s/(API|KEY|TOKEN|SECRET)=.*/\\1=***REDACTED***/" /workspace/.openhands/config.toml || true
-            echo "-------------------------------------------"
-            
-            # 3) Run headless
-            exec "$VENV_PY" -m openhands.core.main -f "$GOAL_ABS" -d "/workspace"
-            '
+VENV_PY="/app/.venv/bin/python"
+
+# 0) Goal visible?
+if [ ! -f "$GOAL_ABS" ]; then
+  echo "❌ Goal not visible: $GOAL_ABS"
+  ls -la /workspace || true
+  ls -la /workspace/.agent || true
+  exit 1
+fi
+echo "✅ Goal visible: $GOAL_ABS"
+
+# 1) Ensure python-dotenv (openhands.agenthub may import it)
+"$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv
+
+# 2) Verify UAE directories exist in workspace
+echo "---- Checking UAE directories ----"
+ls -la /workspace/content/en/family-office/ 2>/dev/null || mkdir -p /workspace/content/en/family-office/uae
+ls -la /workspace/content/en/risk-management/ 2>/dev/null || mkdir -p /workspace/content/en/risk-management/uae
+ls -la /workspace/content/en/wealth-management/ 2>/dev/null || mkdir -p /workspace/content/en/wealth-management/uae
+echo "-----------------------------------"
+
+# 3) Sanity print: show OpenHands config it will use
+echo "---- /workspace/.openhands-agent/config.toml ----"
+sed -E "s/(API|KEY|TOKEN|SECRET)=.*/\\1=***REDACTED***/" /workspace/.openhands-agent/config.toml 2>/dev/null || true
+echo "------------------------------------------------"
+
+# 4) Run headless with explicit goal
+exec "$VENV_PY" -m openhands.core.main -f "$GOAL_ABS" -d "/workspace"
+'
       
       - name: Show agent outputs (if any)
         if: always()
         run: |
           echo "------- Agent output dir -------"
           ls -la "${AGENT_LOG_DIR}" || true
+
+      - name: List created files
+        working-directory: ${{ env.REPO_DIR }}
+        if: always()
+        run: |
+          echo "------- UAE directories content -------"
+          find content/en/family-office/uae -name "*.md" 2>/dev/null || echo "No files in family-office/uae"
+          find content/en/risk-management/uae -name "*.md" 2>/dev/null || echo "No files in risk-management/uae"
+          find content/en/wealth-management/uae -name "*.md" 2>/dev/null || echo "No files in wealth-management/uae"
 
       - name: Commit changes (if any)
         working-directory: ${{ env.REPO_DIR }}
