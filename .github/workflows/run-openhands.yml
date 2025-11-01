@@ -185,7 +185,7 @@ jobs:
           OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
           OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
 
-          # Tavily
+          # Tavily (search)
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
           # Images
@@ -193,7 +193,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Map provider -> env variables consumed by OpenHands
           case "${LLM_PROVIDER}" in
             openai)
               export LLM_PROVIDER="openai"
@@ -247,24 +246,31 @@ jobs:
             -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
             -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
+            -e OPENHANDS_LOG_LEVEL="warning" \
             --add-host host.docker.internal:host-gateway \
             docker.openhands.dev/openhands/openhands:0.60 \
               bash -lc 'set -euo pipefail;
                         VENV_PY="/app/.venv/bin/python";
-                        echo "Using Python: $($VENV_PY -c "import sys; print(sys.executable, sys.version)")";
+
+                        # Sanity: goal visible?
                         if [ ! -f "'"${GOAL_ABS}"'" ]; then
                           echo "❌ Goal not visible: '"${GOAL_ABS}"'"; ls -la /workspace /workspace/.agent || true; exit 1; fi;
                         echo "✅ Goal visible: '"${GOAL_ABS}"'";
 
-                        # Ensure python-dotenv is available in THE SAME interpreter
+                        # 1) Ensure python-dotenv is present for agenthub
                         $VENV_PY -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv;
 
-                        # Import check (no heredoc; avoids YAML parsing issues)
-                        $VENV_PY -c '\''import importlib, sys; importlib.import_module("dotenv"); print("✅ python-dotenv import OK from", sys.executable)'\''
+                        # 2) Write .env so the RUNTIME container (spawned by app) sees search/API keys
+                        #    This avoids figuring out runtime env passthrough; agenthub loads this file automatically.
+                        {
+                          [ -n "${TAVILY_API_KEY:-}" ] && echo "TAVILY_API_KEY=${TAVILY_API_KEY}";
+                          [ -n "${LLM_API_KEY:-}" ] && echo "OPENAI_API_KEY=${LLM_API_KEY}";
+                          [ -n "${LLM_BASE_URL:-}" ] && echo "OPENAI_BASE_URL=${LLM_BASE_URL}";
+                        } > /workspace/.env
+                        echo "✅ Wrote /workspace/.env with search/LLM entries (keys redacted)."
 
-                        # Run headless
+                        # 3) Run headless (quieter logs via OPENHANDS_LOG_LEVEL=warning)
                         exec "$VENV_PY" -m openhands.core.main -f "'"${GOAL_ABS}"'" -d "/workspace"'
-
 
       - name: Show agent outputs (if any)
         if: always()
