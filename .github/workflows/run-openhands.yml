@@ -220,14 +220,28 @@ jobs:
 
           # Ensure logs and state dirs on the host
           mkdir -p "${AGENT_LOG_DIR}"
-          # State dir that the container expects as /.openhands
           mkdir -p "${GITHUB_WORKSPACE}/.openhands"
           chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
 
-          # Pass a RW mount for /.openhands to avoid permission errors
-          # Also pass the repo mount; runtime uses docker.sock to spawn its sandbox container
+          # Preflight: verify the prompt file exists in the repo
+          if [ ! -f "${REPO_DIR}/${PROMPT_FILE}" ]; then
+            echo "❌ Missing goal file: ${REPO_DIR}/${PROMPT_FILE}"
+            echo "Contents of ${REPO_DIR}/:"
+            ls -la "${REPO_DIR}" || true
+            exit 1
+          fi
+
+          # Use absolute path inside the container
+          GOAL_ABS="/workspace/${PROMPT_FILE}"
+
+          # Run the headless app; set working dir to /workspace so relative paths resolve
           docker run --rm \
             --pull=always \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
+            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
+            -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
+            -w /workspace \
             -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
             -e SANDBOX_USER_ID="$(id -u)" \
             -e LLM_PROVIDER="${LLM_PROVIDER}" \
@@ -237,14 +251,10 @@ jobs:
             -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
             -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
-            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
-            -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
             --add-host host.docker.internal:host-gateway \
             docker.openhands.dev/openhands/openhands:0.60 \
               python -m openhands.core.main \
-                -f "${PROMPT_FILE}" \
+                -f "${GOAL_ABS}" \
                 -d "/workspace"
 
       - name: Show agent outputs (if any)
