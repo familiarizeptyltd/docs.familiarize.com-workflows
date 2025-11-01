@@ -237,8 +237,6 @@ jobs:
           # Absolute path used inside the container
           GOAL_ABS="/workspace/${PROMPT_FILE}"
 
-          # Run the headless app; set working dir to /workspace so relative paths resolve;
-          # also add an inline preflight *inside* the container to fail fast if the mount is wrong.
           docker run --rm \
             --pull=always \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -266,6 +264,9 @@ jobs:
                           exit 1;
                         fi;
                         echo "✅ Goal visible inside container: '"${GOAL_ABS}"'";
+                        # --- FIX: install missing dependency used by openhands.agenthub ---
+                        /app/.venv/bin/pip install -q --no-input --disable-pip-version-check python-dotenv;
+                        # ---------------------------------------------------------------
                         python -m openhands.core.main -f "'"${GOAL_ABS}"'" -d "/workspace"'
 
       - name: Show agent outputs (if any)
