@@ -260,7 +260,7 @@ jobs:
                         $VENV_PY -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv;
 
                         # Import check (no heredoc; avoids YAML parsing issues)
-                        $VENV_PY -c "import importlib, sys; print('Import check sys.executable:', sys.executable); importlib.import_module('dotenv'); print('✅ python-dotenv import OK')";
+                        $VENV_PY -c '\''import importlib, sys; importlib.import_module("dotenv"); print("✅ python-dotenv import OK from", sys.executable)'\''
 
                         # Run headless
                         exec "$VENV_PY" -m openhands.core.main -f "'"${GOAL_ABS}"'" -d "/workspace"'
