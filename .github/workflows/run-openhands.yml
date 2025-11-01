@@ -188,107 +188,144 @@ jobs:
           # Tavily (web search)
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       
-          # Runtime image used by OpenHands runtime container
+          # Runtime image that the app will spawn
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
       
-          # Optional: reduce noise and cap run
+          # Quieter logs and sane caps
           OPENHANDS_LOG_LEVEL: warning
-          OPENHANDS_MAX_STEPS: "40"
-          OPENHANDS_HARD_TIMEOUT_SEC: "900"
+          OPENHANDS_MAX_STEPS: "60"
+          OPENHANDS_HARD_TIMEOUT_SEC: "1200"
         run: |
-          set -euo pipefail
+            set -euo pipefail
       
-          # Map provider -> env that OpenHands reads
-          case "${LLM_PROVIDER}" in
-            openai)
-              export LLM_PROVIDER="openai"
-              export LLM_MODEL="${LLM_MODEL}"
-              export LLM_API_KEY="${OPENAI_API_KEY}"
-              ;;
-            openai_compat)
-              export LLM_PROVIDER="openai"
-              export LLM_MODEL="${LLM_MODEL}"
-              export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"
-              export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
-              ;;
-            grok)
-              export LLM_PROVIDER="grok"
-              export LLM_MODEL="${LLM_MODEL}"
-              export LLM_API_KEY="${GROK_API_KEY}"
-              ;;
-            *)
-              echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
-          esac
+            # Map provider -> env that OpenHands reads
+            case "${LLM_PROVIDER}" in
+              openai)
+                export LLM_PROVIDER="openai"
+                export LLM_MODEL="${LLM_MODEL}"
+                export LLM_API_KEY="${OPENAI_API_KEY}"
+                ;;
+              openai_compat)
+                export LLM_PROVIDER="openai"
+                export LLM_MODEL="${LLM_MODEL}"
+                export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"
+                export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
+                ;;
+              grok)
+                export LLM_PROVIDER="grok"
+                export LLM_MODEL="${LLM_MODEL}"
+                export LLM_API_KEY="${GROK_API_KEY}"
+                ;;
+              *)
+                echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
+            esac
+            
+            # Optional browsing hint for agent
+            [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
+            
+            # Ensure host dirs
+            mkdir -p "${AGENT_LOG_DIR}" "${GITHUB_WORKSPACE}/.openhands"
+            chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
+            
+            # Verify prompt on host
+            HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
+            if [ ! -f "${HOST_GOAL}" ]; then
+              echo "❌ Missing goal file on host: ${HOST_GOAL}"
+              ls -la "${REPO_DIR}" || true
+              exit 1
+            fi
+            echo "✅ Found goal on host: ${HOST_GOAL}"
+            ls -la "${REPO_DIR}/.agent" || true
+            
+            # Paths the app will use inside the container
+            GOAL_ABS="/workspace/${PROMPT_FILE}"
+            OPENHANDS_CFG_DIR="${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands"
+            mkdir -p "${OPENHANDS_CFG_DIR}"
+            
+            # === CRITICAL: OpenHands config so it doesn't parse Hugo's config.toml ===
+            cat > "${OPENHANDS_CFG_DIR}/config.toml" <<'TOML'
+            [core]
+            agent = "CodeActAgent"
+            max_steps = 60
+            hard_timeout_sec = 1200
+            enable_browsing = true
+            enable_search = true
+            
+            [workspace]
+            root = "/workspace"
+            write_whitelist_globs = [
+              "content/**",
+              "themes/**",
+              ".agent/**",
+              ".env",
+              ".openhands/**",
+              "static/**",
+              "*.md"
+            ]
+            
+            [search]
+            provider = "tavily"
+            TOML
+            
+            # Also place a minimal MCP config to avoid noisy defaults (optional)
+            echo "[]" > "${OPENHANDS_CFG_DIR}/mcp.json"
+            
+            # Small .env the runtime may load (some builds do)
+            cat > "${GITHUB_WORKSPACE}/${REPO_DIR}/.env" <<ENVEOF
+            # Keys for runtime (keys are redacted in logs)
+            ${TAVILY_API_KEY:+TAVILY_API_KEY=${TAVILY_API_KEY}}
+            ${LLM_API_KEY:+OPENAI_API_KEY=${LLM_API_KEY}}
+            ${LLM_BASE_URL:+OPENAI_BASE_URL=${LLM_BASE_URL}}
+            ENVEOF
+            
+            # Run the OpenHands app container
+            docker run --rm \
+              --pull=always \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
+              -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
+              -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
+              -w /workspace \
+              --add-host host.docker.internal:host-gateway \
+              -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
+              -e SANDBOX_USER_ID="$(id -u)" \
+              -e LLM_PROVIDER="${LLM_PROVIDER}" \
+              -e LLM_MODEL="${LLM_MODEL}" \
+              -e LLM_API_KEY="${LLM_API_KEY}" \
+              -e LLM_BASE_URL="${LLM_BASE_URL:-}" \
+              -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
+              -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
+              -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
+              -e OPENHANDS_LOG_LEVEL="${OPENHANDS_LOG_LEVEL:-warning}" \
+              -e OPENHANDS_MAX_STEPS="${OPENHANDS_MAX_STEPS:-60}" \
+              -e OPENHANDS_HARD_TIMEOUT_SEC="${OPENHANDS_HARD_TIMEOUT_SEC:-1200}" \
+              -e GOAL_ABS="${GOAL_ABS}" \
+              -e OPENHANDS_CONFIG="/workspace/.openhands/config.toml" \
+              docker.openhands.dev/openhands/openhands:0.60 \
+                bash -lc 'set -euo pipefail
+            VENV_PY="/app/.venv/bin/python"
+            
+            # 0) Goal visible?
+            if [ ! -f "$GOAL_ABS" ]; then
+              echo "❌ Goal not visible: $GOAL_ABS"
+              ls -la /workspace || true
+              ls -la /workspace/.agent || true
+              exit 1
+            fi
+            echo "✅ Goal visible: $GOAL_ABS"
+            
+            # 1) Ensure python-dotenv (openhands.agenthub may import it)
+            "$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv
+            
+            # 2) Sanity print: show OpenHands config it will use
+            echo "---- /workspace/.openhands/config.toml ----"
+            sed -E "s/(API|KEY|TOKEN|SECRET)=.*/\\1=***REDACTED***/" /workspace/.openhands/config.toml || true
+            echo "-------------------------------------------"
+            
+            # 3) Run headless
+            exec "$VENV_PY" -m openhands.core.main -f "$GOAL_ABS" -d "/workspace"
+            '
       
-          # Optional browsing hint for agent
-          [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
-      
-          # Ensure host dirs
-          mkdir -p "${AGENT_LOG_DIR}" "${GITHUB_WORKSPACE}/.openhands"
-          chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
-      
-          # Verify prompt on host
-          HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
-          if [ ! -f "${HOST_GOAL}" ]; then
-            echo "❌ Missing goal file on host: ${HOST_GOAL}"
-            ls -la "${REPO_DIR}" || true
-            exit 1
-          fi
-          echo "✅ Found goal on host: ${HOST_GOAL}"
-          ls -la "${REPO_DIR}/.agent" || true
-      
-          # Path the app will use inside the container
-          GOAL_ABS="/workspace/${PROMPT_FILE}"
-      
-          # Run OpenHands app (CLI container). All env is passed via -e only.
-          docker run --rm \
-            --pull=always \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
-            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
-            -v "${GITHUB_WORKSPACE}/.openhands:/.openhands" \
-            -w /workspace \
-            --add-host host.docker.internal:host-gateway \
-            -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
-            -e SANDBOX_USER_ID="$(id -u)" \
-            -e LLM_PROVIDER="${LLM_PROVIDER}" \
-            -e LLM_MODEL="${LLM_MODEL}" \
-            -e LLM_API_KEY="${LLM_API_KEY}" \
-            -e LLM_BASE_URL="${LLM_BASE_URL:-}" \
-            -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
-            -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
-            -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
-            -e OPENHANDS_LOG_LEVEL="${OPENHANDS_LOG_LEVEL:-warning}" \
-            -e OPENHANDS_MAX_STEPS="${OPENHANDS_MAX_STEPS:-40}" \
-            -e OPENHANDS_HARD_TIMEOUT_SEC="${OPENHANDS_HARD_TIMEOUT_SEC:-900}" \
-            -e GOAL_ABS="${GOAL_ABS}" \
-            docker.openhands.dev/openhands/openhands:0.60 \
-              bash -lc 'set -euo pipefail
-                VENV_PY="/app/.venv/bin/python"
-      
-                # 0) Sanity: goal visible inside container?
-                if [ ! -f "$GOAL_ABS" ]; then
-                  echo "❌ Goal not visible: $GOAL_ABS"
-                  ls -la /workspace || true
-                  ls -la /workspace/.agent || true
-                  exit 1
-                fi
-                echo "✅ Goal visible: $GOAL_ABS"
-      
-                # 1) Ensure python-dotenv for openhands.agenthub
-                "$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv
-      
-                # 2) Write /workspace/.env so the *runtime* container sees keys
-                : > /workspace/.env
-                if [ -n "${TAVILY_API_KEY:-}" ]; then printf "TAVILY_API_KEY=%s\n" "${TAVILY_API_KEY}" >> /workspace/.env; fi
-                if [ -n "${LLM_API_KEY:-}" ]; then printf "OPENAI_API_KEY=%s\n"   "${LLM_API_KEY}"    >> /workspace/.env; fi
-                if [ -n "${LLM_BASE_URL:-}" ]; then printf "OPENAI_BASE_URL=%s\n" "${LLM_BASE_URL}"   >> /workspace/.env; fi
-                echo "✅ Wrote /workspace/.env (keys redacted)"
-      
-                # 3) Run headless (respects OPENHANDS_* caps)
-                exec "$VENV_PY" -m openhands.core.main -f "$GOAL_ABS" -d "/workspace"
-              '
-
       - name: Show agent outputs (if any)
         if: always()
         run: |
