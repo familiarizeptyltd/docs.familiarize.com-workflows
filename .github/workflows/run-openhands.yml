@@ -48,9 +48,11 @@ jobs:
       pull-requests: write
 
     env:
+      # Paths
       REPO_DIR: docs_repo
       AGENT_LOG_DIR: openhands_run
 
+      # Inputs -> env
       PROMPT_TEMPLATE: ${{ github.event.inputs.prompt_template }}
       PROFILE_KEY: ${{ github.event.inputs.profile_key }}
       RAW_PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
@@ -61,7 +63,10 @@ jobs:
       ENABLE_SEARCH: ${{ github.event.inputs.web_search_enabled }}
       COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
 
+      # OpenHands sandbox runtime image (pulled by the app when needed)
       SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
+
+      # Target repo for PRs
       TARGET_REPO: familiarizeptyltd/docs.familiarize.com
 
     steps:
@@ -87,7 +92,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pygithub
 
-      - name: Resolve prompt (template -> raw fallback)
+      # ---------- Prompt: template -> .agent/rendered_prompt.md (or raw fallback) ----------
+      - name: Resolve prompt (template → raw fallback)
         run: |
           set -euo pipefail
 
@@ -105,6 +111,8 @@ jobs:
             use_template=true
           fi
 
+          mkdir -p "${REPO_DIR}/.agent"
+
           if $use_template; then
             echo "Using template: ${TEMPLATE_PATH} (profile=${PROFILE_KEY}) with ${PROFILES_PATH}"
             python scripts/render_prompt.py \
@@ -116,7 +124,7 @@ jobs:
           else
             echo "Template/profiles missing. Falling back to RAW: ${RAW_PATH}"
             if [ ! -f "${RAW_PATH}" ]; then
-              echo "Missing inputs. Need either template+profiles or RAW."; exit 1
+              echo "❌ Missing inputs. Need template+profiles or RAW."; exit 1
             fi
             echo "PROMPT_FILE=${RAW_PROMPT_FILE}" >> "$GITHUB_ENV"
           fi
@@ -124,7 +132,7 @@ jobs:
       - name: Validate prompt path
         run: |
           set -euo pipefail
-          test -f "${REPO_DIR}/${PROMPT_FILE}" || (echo "Prompt not found: ${REPO_DIR}/${PROMPT_FILE}"; exit 1)
+          test -f "${REPO_DIR}/${PROMPT_FILE}" || (echo "❌ Prompt not found: ${REPO_DIR}/${PROMPT_FILE}"; exit 1)
 
       - name: Configure Git user
         working-directory: ${{ env.REPO_DIR }}
@@ -142,7 +150,7 @@ jobs:
             git checkout -b "${TARGET_BRANCH}"
           fi
 
-      - name: Pull sandbox runtime image
+      - name: Pull sandbox runtime image (optional but speeds first run)
         run: docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
 
       - name: Pull OpenHands app image
@@ -150,23 +158,30 @@ jobs:
 
       - name: Run OpenHands (docker headless; with Tavily search)
         env:
+          # LLM secrets
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
 
+          # Feature toggles (from workflow inputs)
           OH_ENABLE_BROWSING: ${{ env.ENABLE_BROWSING }}
           OH_ENABLE_SEARCH: ${{ env.ENABLE_SEARCH }}
 
+          # Tavily (web search)
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+
+          # Runtime image used by OpenHands runtime container
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
 
+          # Optional: reduce noise and cap run
           OPENHANDS_LOG_LEVEL: warning
           OPENHANDS_MAX_STEPS: "60"
           OPENHANDS_HARD_TIMEOUT_SEC: "1200"
         run: |
           set -euo pipefail
 
+          # Map provider -> env that OpenHands reads
           case "${LLM_PROVIDER}" in
             openai)
               export LLM_PROVIDER="openai"
@@ -188,23 +203,29 @@ jobs:
               echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1;;
           esac
 
+          # Optional browsing hint for agent
           [ "${OH_ENABLE_BROWSING}" = "true" ] && export AGENT_ENABLE_BROWSING=true || true
 
+          # Ensure host dirs
           mkdir -p "${AGENT_LOG_DIR}" "${GITHUB_WORKSPACE}/.openhands"
           chmod 0777 "${GITHUB_WORKSPACE}/.openhands" || true
 
+          # Verify prompt on host
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
           if [ ! -f "${HOST_GOAL}" ]; then
-            echo "Missing goal on host: ${HOST_GOAL}"; exit 1
+            echo "❌ Missing goal on host: ${HOST_GOAL}"
+            ls -la "${REPO_DIR}" || true
+            exit 1
           fi
-          echo "Found goal on host: ${HOST_GOAL}"
+          echo "✅ Found goal on host: ${HOST_GOAL}"
           ls -la "${REPO_DIR}/.agent" || true
 
+          # Paths used inside the container
           GOAL_ABS="/workspace/${PROMPT_FILE}"
           OPENHANDS_CFG_DIR="${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands"
           mkdir -p "${OPENHANDS_CFG_DIR}"
 
-          # Write TOML via printf (no heredocs -> no YAML parser confusion)
+          # ---- Write OpenHands config TOML (no heredocs) ----
           CFG="${OPENHANDS_CFG_DIR}/config.toml"
           : > "$CFG"
           printf '%s\n' '[core]' >> "$CFG"
@@ -229,14 +250,53 @@ jobs:
           printf '%s\n' '[search]' >> "$CFG"
           printf '%s\n' 'provider = "tavily"' >> "$CFG"
 
+          # Minimal MCP config to keep noise down (optional)
           echo "[]" > "${OPENHANDS_CFG_DIR}/mcp.json"
 
+          # Runtime .env (keys loaded by some builds of the runtime)
           ENVFILE="${GITHUB_WORKSPACE}/${REPO_DIR}/.env"
           : > "$ENVFILE"
           [ -n "${TAVILY_API_KEY:-}" ] && printf 'TAVILY_API_KEY=%s\n' "${TAVILY_API_KEY}" >> "$ENVFILE"
           [ -n "${LLM_API_KEY:-}" ] && printf 'OPENAI_API_KEY=%s\n' "${LLM_API_KEY}" >> "$ENVFILE"
           [ -n "${LLM_BASE_URL:-}" ] && printf 'OPENAI_BASE_URL=%s\n' "${LLM_BASE_URL}" >> "$ENVFILE"
 
+          # ---- Write a tiny run script inside /workspace to avoid quoting issues ----
+          RUNSH="${OPENHANDS_CFG_DIR}/run.sh"
+          : > "$RUNSH"
+          chmod +x "$RUNSH"
+          {
+            printf '%s\n' '#!/usr/bin/env bash'
+            printf '%s\n' 'set -euo pipefail'
+            printf '%s\n' 'VENV_PY="/app/.venv/bin/python"'
+            printf '%s\n' 'GOAL_ABS="${GOAL_ABS:?}"'
+            printf '%s\n' 'if [ ! -f "$GOAL_ABS" ]; then'
+            printf '%s\n' '  echo "❌ Goal not visible: $GOAL_ABS"'
+            printf '%s\n' '  ls -la /workspace || true'
+            printf '%s\n' '  ls -la /workspace/.agent || true'
+            printf '%s\n' '  exit 1'
+            printf '%s\n' 'fi'
+            printf '%s\n' 'echo "✅ Goal visible: $GOAL_ABS"'
+            printf '%s\n' ''
+            printf '%s\n' '# Ensure python-dotenv (some builds import it)'
+            printf '%s\n' '"$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv || true'
+            printf '%s\n' ''
+            printf '%s\n' 'mkdir -p /workspace/.agent'
+            printf '%s\n' 'WRAPPED="/workspace/.agent/_wrapped_goal.md"'
+            printf '%s\n' ': > "$WRAPPED"'
+            printf '%s\n' 'printf "# SYSTEM EXECUTION DIRECTIVE\n\n" >> "$WRAPPED"'
+            printf '%s\n' 'printf "You are CodeActAgent running headless in a Git repo at /workspace.\n" >> "$WRAPPED"'
+            printf '%s\n' 'printf "Act by creating/editing files directly under /workspace (see write_whitelist_globs).\n\n" >> "$WRAPPED"'
+            printf '%s\n' 'printf "## REQUIRED ACTIONS\n" >> "$WRAPPED"'
+            printf '%s\n' 'printf "1) Plan briefly.\n2) Create the exact new Markdown files requested (do NOT just propose).\n" >> "$WRAPPED"'
+            printf '%s\n' 'printf "3) Validate YAML front matter and dates.\n4) Save files to the exact required paths.\n5) Finish when files are written.\n\n" >> "$WRAPPED"'
+            printf '%s\n' 'printf "## GUARANTEES\n- If tags file is missing, pick 1–2 best-fit existing tags or skip with note; still create files.\n- If any directory is missing, create it and continue.\n\n" >> "$WRAPPED"'
+            printf '%s\n' 'printf "----- ORIGINAL GOAL BELOW -----\n\n" >> "$WRAPPED"'
+            printf '%s\n' 'cat "$GOAL_ABS" >> "$WRAPPED"'
+            printf '%s\n' ''
+            printf '%s\n' 'exec "$VENV_PY" -m openhands.core.main -f "$WRAPPED" -d "/workspace"'
+          } >> "$RUNSH"
+
+          # ---- Run the OpenHands app container ----
           docker run --rm \
             --pull=always \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -258,51 +318,9 @@ jobs:
             -e OPENHANDS_MAX_STEPS="${OPENHANDS_MAX_STEPS:-60}" \
             -e OPENHANDS_HARD_TIMEOUT_SEC="${OPENHANDS_HARD_TIMEOUT_SEC:-1200}" \
             -e OPENHANDS_CONFIG="/workspace/.openhands/config.toml" \
+            -e GOAL_ABS="${GOAL_ABS}" \
             docker.openhands.dev/openhands/openhands:0.60 \
-              bash -lc '
-                set -euo pipefail
-                VENV_PY="/app/.venv/bin/python"
-
-                if [ ! -f "'"$GOAL_ABS"'" ]; then
-                  echo "Goal not visible: "'"$GOAL_ABS"'"
-                  ls -la /workspace || true
-                  ls -la /workspace/.agent || true
-                  exit 1
-                fi
-                echo "Goal visible: "'"$GOAL_ABS"'"
-
-                # Ensure python-dotenv
-                "$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv
-
-                # Wrap the goal so the agent MUST act
-                mkdir -p /workspace/.agent
-                WRAPPED="/workspace/.agent/_wrapped_goal.md"
-                : > "$WRAPPED"
-                {
-                  echo "# SYSTEM EXECUTION DIRECTIVE"
-                  echo
-                  echo "You are CodeActAgent running headless in a Git repo at /workspace."
-                  echo "Act by creating/editing files directly under /workspace (see write_whitelist_globs)."
-                  echo
-                  echo "## REQUIRED ACTIONS"
-                  echo "1) Plan briefly."
-                  echo "2) Create the exact new Markdown files requested (do NOT just propose)."
-                  echo "3) Validate YAML front matter and dates."
-                  echo "4) Save files to the exact required paths."
-                  echo "5) Finish when files are written."
-                  echo
-                  echo "## GUARANTEES"
-                  echo "- If tags file is missing, pick 1–2 best-fit existing tags or skip with note; still create files."
-                  echo "- If any directory is missing, create it and continue."
-                  echo
-                  echo "----- ORIGINAL GOAL BELOW -----"
-                  echo
-                } >> "$WRAPPED"
-                cat "'"$GOAL_ABS"'" >> "$WRAPPED"
-
-                # Run headless using the wrapped goal
-                exec "$VENV_PY" -m openhands.core.main -f "$WRAPPED" -d "/workspace"
-              '
+              bash "/workspace/.openhands/run.sh"
 
       - name: Show agent outputs (if any)
         if: always()
@@ -316,7 +334,7 @@ jobs:
           set -euo pipefail
           git add -A
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "ℹ️ No changes to commit."
             exit 0
           fi
           git commit -m "OpenHands agent: apply changes from ${PROMPT_FILE}"
@@ -342,7 +360,7 @@ jobs:
             --base "main" \
             --title "OpenHands: ${PROMPT_FILE}" \
             --body "$(printf "Automated changes by OpenHands agent.\n\nPrompt: \`%s\`\nBrowsing: \`%s\`, Search: \`%s\`\nModel: \`%s/%s\`" "${PROMPT_FILE}" "${ENABLE_BROWSING}" "${ENABLE_SEARCH}" "${LLM_PROVIDER}" "${LLM_MODEL}")" \
-          || echo "PR may already exist or token lacks PR scope."
+          || echo "ℹ️ PR may already exist or token lacks PR scope."
 
       - name: Upload artifacts
         if: always()
