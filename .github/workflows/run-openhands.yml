@@ -63,7 +63,7 @@ jobs:
       ENABLE_SEARCH: ${{ github.event.inputs.web_search_enabled }}
       COMMIT_MODE: ${{ github.event.inputs.commit_mode }}
 
-      # OpenHands sandbox runtime image (pulled by the app when needed)
+      # OpenHands sandbox runtime (tools/browsing env)
       SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
 
       # Target repo for PRs
@@ -124,9 +124,10 @@ jobs:
           else
             echo "Template/profiles missing. Falling back to RAW: ${RAW_PATH}"
             if [ ! -f "${RAW_PATH}" ]; then
-              echo "❌ Missing inputs. Need template+profiles or RAW."; exit 1
+              echo "❌ Missing inputs. Need either template+profiles or RAW."; exit 1
             fi
-            echo "PROMPT_FILE=${RAW_PROMPT_FILE}" >> "$GITHUB_ENV"
+            cp -f "${RAW_PATH}" "${REPO_DIR}/.agent/rendered_prompt.md"
+            echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
           fi
 
       - name: Validate prompt path
@@ -150,10 +151,10 @@ jobs:
             git checkout -b "${TARGET_BRANCH}"
           fi
 
-      - name: Pull sandbox runtime image (optional but speeds first run)
+      - name: Pull sandbox runtime image (faster first run)
         run: docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
 
-      - name: Pull OpenHands app image
+      - name: Pull OpenHands app image (CLI)
         run: docker pull docker.openhands.dev/openhands/openhands:0.60
 
       - name: Run OpenHands (docker headless; with Tavily search)
@@ -213,19 +214,17 @@ jobs:
           # Verify prompt on host
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
           if [ ! -f "${HOST_GOAL}" ]; then
-            echo "❌ Missing goal on host: ${HOST_GOAL}"
-            ls -la "${REPO_DIR}" || true
-            exit 1
+            echo "❌ Missing goal on host: ${HOST_GOAL}"; exit 1
           fi
           echo "✅ Found goal on host: ${HOST_GOAL}"
           ls -la "${REPO_DIR}/.agent" || true
 
-          # Paths used inside the container
+          # Absolute path used inside the container
           GOAL_ABS="/workspace/${PROMPT_FILE}"
+
+          # --- Write OpenHands config.toml safely (no heredocs) ---
           OPENHANDS_CFG_DIR="${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands"
           mkdir -p "${OPENHANDS_CFG_DIR}"
-
-          # ---- Write OpenHands config TOML (no heredocs) ----
           CFG="${OPENHANDS_CFG_DIR}/config.toml"
           : > "$CFG"
           printf '%s\n' '[core]' >> "$CFG"
@@ -250,7 +249,7 @@ jobs:
           printf '%s\n' '[search]' >> "$CFG"
           printf '%s\n' 'provider = "tavily"' >> "$CFG"
 
-          # Minimal MCP config to keep noise down (optional)
+          # Minimal MCP config to keep noise down
           echo "[]" > "${OPENHANDS_CFG_DIR}/mcp.json"
 
           # Runtime .env (keys loaded by some builds of the runtime)
@@ -260,43 +259,17 @@ jobs:
           [ -n "${LLM_API_KEY:-}" ] && printf 'OPENAI_API_KEY=%s\n' "${LLM_API_KEY}" >> "$ENVFILE"
           [ -n "${LLM_BASE_URL:-}" ] && printf 'OPENAI_BASE_URL=%s\n' "${LLM_BASE_URL}" >> "$ENVFILE"
 
-          # ---- Write a tiny run script inside /workspace to avoid quoting issues ----
-          RUNSH="${OPENHANDS_CFG_DIR}/run.sh"
+          # --- Inject a tiny runner script via base64 (avoids heredocs/printf pitfalls) ---
+          mkdir -p "${GITHUB_WORKSPACE}/.openhands"
+          RUNSH="${GITHUB_WORKSPACE}/.openhands/run.sh"
           : > "$RUNSH"
-          chmod +x "$RUNSH"
-          {
-            printf '%s\n' '#!/usr/bin/env bash'
-            printf '%s\n' 'set -euo pipefail'
-            printf '%s\n' 'VENV_PY="/app/.venv/bin/python"'
-            printf '%s\n' 'GOAL_ABS="${GOAL_ABS:?}"'
-            printf '%s\n' 'if [ ! -f "$GOAL_ABS" ]; then'
-            printf '%s\n' '  echo "❌ Goal not visible: $GOAL_ABS"'
-            printf '%s\n' '  ls -la /workspace || true'
-            printf '%s\n' '  ls -la /workspace/.agent || true'
-            printf '%s\n' '  exit 1'
-            printf '%s\n' 'fi'
-            printf '%s\n' 'echo "✅ Goal visible: $GOAL_ABS"'
-            printf '%s\n' ''
-            printf '%s\n' '# Ensure python-dotenv (some builds import it)'
-            printf '%s\n' '"$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv || true'
-            printf '%s\n' ''
-            printf '%s\n' 'mkdir -p /workspace/.agent'
-            printf '%s\n' 'WRAPPED="/workspace/.agent/_wrapped_goal.md"'
-            printf '%s\n' ': > "$WRAPPED"'
-            printf '%s\n' 'printf "# SYSTEM EXECUTION DIRECTIVE\n\n" >> "$WRAPPED"'
-            printf '%s\n' 'printf "You are CodeActAgent running headless in a Git repo at /workspace.\n" >> "$WRAPPED"'
-            printf '%s\n' 'printf "Act by creating/editing files directly under /workspace (see write_whitelist_globs).\n\n" >> "$WRAPPED"'
-            printf '%s\n' 'printf "## REQUIRED ACTIONS\n" >> "$WRAPPED"'
-            printf '%s\n' 'printf "1) Plan briefly.\n2) Create the exact new Markdown files requested (do NOT just propose).\n" >> "$WRAPPED"'
-            printf '%s\n' 'printf "3) Validate YAML front matter and dates.\n4) Save files to the exact required paths.\n5) Finish when files are written.\n\n" >> "$WRAPPED"'
-            printf '%s\n' 'printf "## GUARANTEES\n- If tags file is missing, pick 1–2 best-fit existing tags or skip with note; still create files.\n- If any directory is missing, create it and continue.\n\n" >> "$WRAPPED"'
-            printf '%s\n' 'printf "----- ORIGINAL GOAL BELOW -----\n\n" >> "$WRAPPED"'
-            printf '%s\n' 'cat "$GOAL_ABS" >> "$WRAPPED"'
-            printf '%s\n' ''
-            printf '%s\n' 'exec "$VENV_PY" -m openhands.core.main -f "$WRAPPED" -d "/workspace"'
-          } >> "$RUNSH"
 
-          # ---- Run the OpenHands app container ----
+          SCRIPT_B64='IyEvdXNyL2Jpbi9lbnYgYmFzaApzZXQgLWV1byBwaXBlZmFpbApWRU5WX1BZPSIvYXBwLy52ZW52L2Jpbi9weXRob24iCjogIiR7R09BTF9BQlM6P0dPQUxfQUJTIHBmOiBHT0FMX0FCUyBub3Qgc2V0fSIKaWYgWyAhIC1mICIkR09BTF9BQlMiIF07IHRoZW4KICBlY2hvICJHb2FsIG5vdCB2aXNpYmxlOiAkR09BTF9BQlMiCiAgbHMgLWxhIC93b3Jrc3BhY2UgfHwgdHJ1ZQogIGxzIC1sYSAvd29ya3NwYWNlLy5hZ2VudCB8fCB0cnVlCiAgZXhpdCAxCmZpCmVjaG8gIkdvYWwgdnNpc2JsZTogJEdPQUxfQUJTIgoKIiRWRU5WX1BZIiAtbSBwaXAgSW5zdGFsbCAtLW5vLWNhY2hlLWRpciAtLWRpc2FibGUtcGlwLXZlcnNpb24tY2hlY2sgLXEgcHl0aG9uLWRvdGVudiB8fCB0cnVlCgpta2RpciAtcCAvd29ya3NwYWNlLy5hZ2VudApXUkFQUEVEPSIvd29ya3NwYWNlLy5hZ2VudC9fd3JhcHBlZF9nb2FsLm1kIgo6ID4gIiRXUkFQUEVEIgoKcHJpbnRmICclcyVcbicgJyMgU1lTVEVNIEVYRUNVVElPTiBESVJFQ1RJVkUnID4+ICIkV1JBUEVFRCIKcHJpbnRmICclcyVcbiIgIiA+PiAiJFdSQVBQRUQiCnByaW50ZiAnJXMlXG4nICdZb3UgYXJlIENvZGVBY3RBZ2VudCBydW5uaW5nIGhlYWRsZXNzIGluIGEgR2l0IHJlcG8gYXQgL3dvcmtzcGFjZS4nID4+ICIkV1JBUEVFRCIKcHJpbnRmICclc1xuJyAnQWN0IGJ5IGNyZWF0aW5nL2VkaXRpbmcgZmlsZXMgZGlyZWN0bHkgdW5kZXIgL3dvcmtzcGFjZSAoc2VlIHdyaXRlX3doaXRlbGlzdF9nbG9icykuJyA+PiAiJFdSQVBQRUQiCnByaW50ZiAnJXMlXG4nICIgPj4gIiRXUkFQUEVEIgpwcmludGYgJyVzXG4nICcjIyBSRVFVSVJFRCBBQ1RJT05TJyA+PiAiJFdSQVBQRUQiCnByaW50ZiAnJXMlXG4nICcxKSBQbGFuIGJyaWVmbHkuJyA+PiAiJFdSQVBQRUQiCnByaW50ZiAnJXMlXG4nICcyKSBDcmVhdGUgdGhlIGV4YWN0IG5ldyBNYXJrZG93biBmaWxlcyByZXF1ZXN0ZWQgKGRvIE5PVCBqdXN0IHByb3Bvc2UpLicgPj4gIiRXUkFQUEVEIgpwcmludGYgJyVzXG4nICczKSBWYWxpZGF0ZSBZQU1MIGZyb250IG1hdHRlciBhbmQgZGF0ZXMuJyA+PiAiJFdSQVBQRUQiCnByaW50ZiAnJXMlXG4nICc0KSBTYXZlIGZpbGVzIHRvIHRoZSBleGFjdCByZXF1aXJlZCBwYXRocy4nID4+ICIkV1JBUEVFRCIKcHJpbnRmICclc1xuJyAnNSkgRmluaXNoIHdoZW4gZmlsZXMgYXJlIHdyaXR0ZW4uJyA+PiAiJFdSQVBQRUQiCnByaW50ZiAnJXMlXG4nICIgPj4gIiRXUkFQUEVEIgpwcmludGYgJyVzXG4nICcjIyBHVUFSQU5URUVTJyA+PiAiJFdSQVBQRUQiCnByaW50ZiAnJXMlXG4nICLigqQgSWYgdGFncyBmaWxlIGlzIG1pc3NpbmcsIHBpY2sgMeKAkzIgYmVzdC1maXQgZXhpc3RpbmcgdGFncyBvciBza2lwIHdpdGggbm90ZTsgc3RpbGwgY3JlYXRlIGZpbGVzLicgPj4gIiRXUkFQUEVEIgpwcmludGYgJyVzXG4nICLigqQgSWYgYW55IGRpcmVjdG9yeSBpcyBtaXNzaW5nLCBjcmVhdGUgaXQgYW5kIGNvbnRpbnVlLicgPj4gIiRXUkFQUEVEIgpwcmludGYgJyVzXG4nICIgPj4gIiRXUkFQUEVEIgpwcmludGYgJyVzXG4nICdPUklHSU5BTCBHT0FMIEJFTElPVzonID4+ICIkV1JBUEVFRCIKcHJpbnRmICclc1xuJyAiID4+ICIkV1JBUEVFRCIKCmNhdCAiJEdPQUxfQUJTIiA+PiAiJFdSQVBQRUQiCgojIFJ1biBoZWFkbGVzcyB3aXRoIHRoZSB3cmFwcGVkIGdvYWwKZXhlYyAiJFZFTlZfUFkiIC1tIG9wZW5oYW5kcy5jb3JlLm1haW4gLWYgIiRXUkFQUEVEIiAtZCAiL3dvcmtzcGFjZSIK'
+
+          printf '%s' "$SCRIPT_B64" | base64 -d > "$RUNSH"
+          chmod +x "$RUNSH"
+
+          # --- Launch OpenHands (app container) ---
           docker run --rm \
             --pull=always \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -320,7 +293,7 @@ jobs:
             -e OPENHANDS_CONFIG="/workspace/.openhands/config.toml" \
             -e GOAL_ABS="${GOAL_ABS}" \
             docker.openhands.dev/openhands/openhands:0.60 \
-              bash "/workspace/.openhands/run.sh"
+              bash -lc "${GITHUB_WORKSPACE}/.openhands/run.sh"
 
       - name: Show agent outputs (if any)
         if: always()
