@@ -24,13 +24,13 @@ jobs:
       LLM_PROVIDER: openai            # openai | openai_compat | grok
       LLM_MODEL: gpt-4o-mini
       OH_ENABLE_BROWSING: "true"
-      OH_ENABLE_SEARCH: "true"
+      OH_ENABLE_SEARCH: "true"        # keeps envs passed; harmless if search not needed
 
       # Images
       SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
       OPENHANDS_IMAGE: docker.openhands.dev/openhands/openhands:0.60
 
-      # Logging
+      # Logging / limits
       AGENT_LOG_DIR: openhands_run
       OPENHANDS_LOG_LEVEL: warning
       OPENHANDS_MAX_STEPS: "60"
@@ -123,6 +123,7 @@ jobs:
           set -Eeuo pipefail
           if git rev-parse --verify "${TARGET_BRANCH}" >/dev/null 2>&1; then
             git checkout "${TARGET_BRANCH}"
+            git merge --ff-only origin/"${TARGET_BRANCH}" || true
           else
             git checkout -b "${TARGET_BRANCH}"
           fi
@@ -135,7 +136,8 @@ jobs:
           docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
           docker pull "${OPENHANDS_IMAGE}"
 
-      - name: Launch OpenHands (single-line docker run; no backslashes)
+      # --- MAIN CHANGE: run OpenHands WITHOUT config.toml (0.60 ignores your keys anyway) ---
+      - name: Launch OpenHands (no custom config; single-line docker run)
         env:
           # repo + files
           REPO_DIR: ${{ env.REPO_DIR }}
@@ -166,13 +168,8 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.openhands" "${REPO_DIR}/.agent"
-          chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" || true
-
-          HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
-          echo "✅ Found goal on host: ${HOST_GOAL}"
-          ls -la "${REPO_DIR}/.agent" || true
-
+          mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.agent"
+          # Wrap the goal so the agent gets explicit, file-writing instructions
           WRAPPED_HOST="${REPO_DIR}/.agent/_wrapped_goal.md"
           {
             printf '%s\n' "# SYSTEM EXECUTION DIRECTIVE"
@@ -181,73 +178,27 @@ jobs:
             printf '%s\n' "1) Plan briefly."
             printf '%s\n' "2) Create the exact new Markdown files requested (do NOT just propose)."
             printf '%s\n' "3) Validate YAML front matter and dates."
-            printf '%s\n' "4) Save files to the exact required paths."
-            printf '%s\n\n' "5) Finish when files are written."
-            printf '%s\n' "## GUARANTEES"
-            printf '%s\n' "- If tags file is missing, pick 1–2 best-fit existing tags or skip with note; still create files."
-            printf '%s\n\n' "- If any directory is missing, create it and continue."
+            printf '%s\n' "4) Save files to the exact required paths under /workspace/content/**."
+            printf '%s\n' "5) When done, print a final list of created/modified file paths, then finish."
             printf '%s\n\n' "----- ORIGINAL GOAL BELOW -----"
-            cat "${HOST_GOAL}"
+            cat "${REPO_DIR}/${PROMPT_FILE}"
           } > "${WRAPPED_HOST}"
-
-          # Build OpenHands config (Hugo-safe)
-          CFG="${REPO_DIR}/.openhands/config.toml"
-          {
-            printf '%s\n' '[core]'
-            printf '%s\n' 'agent = "CodeActAgent"'
-            printf '%s\n' "max_steps = ${OPENHANDS_MAX_STEPS}"
-            printf '%s\n' "hard_timeout_sec = ${OPENHANDS_HARD_TIMEOUT_SEC}"
-            printf '%s\n' 'enable_browsing = true'
-            printf '%s\n' 'enable_search = true'
-            printf '%s\n' ''
-            printf '%s\n' '[workspace]'
-            printf '%s\n' 'root = "/workspace"'
-            printf '%s\n' 'write_whitelist_globs = ['
-            printf '%s\n' '  "content/**",'
-            printf '%s\n' '  "themes/**",'
-            printf '%s\n' '  ".agent/**",'
-            printf '%s\n' '  ".env",'
-            printf '%s\n' '  ".openhands/**",'
-            printf '%s\n' '  "static/**",'
-            printf '%s\n' '  "*.md"'
-            printf '%s\n' ']'
-            printf '%s\n' ''
-            printf '%s\n' '[search]'
-            printf '%s\n' 'provider = "tavily"'
-          } > "${CFG}"
-
-          echo "[]" > "${REPO_DIR}/.openhands/mcp.json"
 
           # Map provider to env the container expects
           case "${LLM_PROVIDER}" in
-            openai)
-              export LLM_API_KEY="${OPENAI_API_KEY}"
-              ;;
-            openai_compat)
-              export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"
-              export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
-              ;;
-            grok)
-              export LLM_API_KEY="${GROK_API_KEY}"
-              ;;
-            *)
-              echo "Unsupported LLM provider: ${LLM_PROVIDER}"
-              exit 1
-              ;;
+            openai)         export LLM_API_KEY="${OPENAI_API_KEY}" ;;
+            openai_compat)  export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"; export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}" ;;
+            grok)           export LLM_API_KEY="${GROK_API_KEY}" ;;
+            *) echo "Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1 ;;
           esac
 
-          # Optional browsing flag (robust to unset/CRLF)
-          if [[ "${OH_ENABLE_BROWSING:-}" == "true" ]]; then
-            export AGENT_ENABLE_BROWSING="true"
-          fi
+          # Optional browsing
+          if [[ "${OH_ENABLE_BROWSING:-}" == "true" ]]; then export AGENT_ENABLE_BROWSING="true"; fi
 
-          # Single-line docker run to avoid CRLF/backslash pitfalls
+          # Run without mounting a config.toml (0.60 ignores your keys anyway)
           docker run --rm --pull=always -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/.openhands" \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/home/enduser/.openhands" \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands/config.toml:/workspace/config.toml:ro" \
             -w /workspace --add-host host.docker.internal:host-gateway \
             -e HOME="/home/enduser" \
             -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
@@ -263,14 +214,55 @@ jobs:
             -e OPENHANDS_MAX_STEPS="${OPENHANDS_MAX_STEPS:-60}" \
             -e OPENHANDS_HARD_TIMEOUT_SEC="${OPENHANDS_HARD_TIMEOUT_SEC:-1200}" \
             -e GOAL_ABS="/workspace/.agent/_wrapped_goal.md" \
-            "${OPENHANDS_IMAGE}" bash -lc 'set -Eeuo pipefail; VENV_PY="/app/.venv/bin/python"; test -f "/workspace/.agent/_wrapped_goal.md" || { echo "❌ Goal not visible"; ls -la /workspace/.agent || true; exit 1; }; "$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv || true; exec "$VENV_PY" -m openhands.core.main -f "/workspace/.agent/_wrapped_goal.md" -d "/workspace"'
+            "${OPENHANDS_IMAGE}" bash -lc 'set -Eeuo pipefail; VENV_PY="/app/.venv/bin/python"; test -f "$GOAL_ABS" || { echo "❌ Goal not visible"; ls -la /workspace/.agent || true; exit 1; }; exec "$VENV_PY" -m openhands.core.main -f "$GOAL_ABS" -d "/workspace"'
 
-      - name: Show agent output dir
+      - name: Show agent logs (if any)
         run: |
           echo "------- Agent output dir -------"
           ls -la "${AGENT_LOG_DIR}" || true
+          echo "------- Recent log lines -------"
+          { tail -n 200 "${AGENT_LOG_DIR}"/* 2>/dev/null || true; }
 
-      - name: Upload agent logs (if any)
+      # --- POST-RUN SANITY & COMMIT ---
+      - name: Show repo changes (pre-commit)
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          echo "------- git status (porcelain) -------"
+          git status --porcelain || true
+          echo "------- recent files under content/ -------"
+          find content -type f | head -n 50 || true
+
+      - name: Commit & push changes (if any)
+        working-directory: ${{ env.REPO_DIR }}
+        env:
+          TARGET_BRANCH: ${{ env.TARGET_BRANCH }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add -A
+            git commit -m "OpenHands: generated content via CI"
+            git push origin "${TARGET_BRANCH}"
+            echo "CHANGES_COMMITTED=true" >> "$GITHUB_ENV"
+          else
+            echo "No file changes detected."
+            echo "CHANGES_COMMITTED=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create PR (optional; runs only if changes)
+        if: env.CHANGES_COMMITTED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          # Create a PR to main if one doesn't already exist
+          PR_URL=$(gh pr list --head "${{ env.TARGET_BRANCH }}" --base main --json url --jq '.[0].url' || true)
+          if [[ -z "$PR_URL" ]]; then
+            gh pr create --head "${{ env.TARGET_BRANCH }}" --base main --title "OpenHands generated content" --body "Automated content generation via OpenHands CI."
+          else
+            echo "PR already exists: $PR_URL"
+          fi
+
+      - name: Upload agent logs
         uses: actions/upload-artifact@v4
         with:
           name: openhands-run-${{ github.run_id }}
