@@ -212,7 +212,7 @@ jobs:
 
           # Verify prompt on host
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
-          if [ ! -f "${HOST_GOAL}" ]; then
+          if [ ! -f "${HOST_GOAL}"; then
             echo "❌ Missing goal on host: ${HOST_GOAL}"; exit 1
           fi
           echo "✅ Found goal on host: ${HOST_GOAL}"
@@ -238,7 +238,7 @@ jobs:
           # Absolute path used inside the container
           GOAL_ABS="/workspace/.agent/_wrapped_goal.md"
 
-          # --- Write OpenHands config.toml (no heredocs) ---
+          # --- Write OpenHands config.toml (Hugo-safe) ---
           OPENHANDS_CFG_DIR_HOST="${REPO_DIR}/.openhands"
           CFG="${OPENHANDS_CFG_DIR_HOST}/config.toml"
           : > "$CFG"
@@ -281,8 +281,11 @@ jobs:
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/.openhands" \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/home/enduser/.openhands" \
+            # >>> IMPORTANT: mask Hugo's config.toml inside the container
+            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands/config.toml:/workspace/config.toml:ro" \
             -w /workspace \
             --add-host host.docker.internal:host-gateway \
+            -e HOME="/home/enduser" \
             -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
             -e SANDBOX_USER_ID="$(id -u)" \
             -e LLM_PROVIDER="${LLM_PROVIDER}" \
