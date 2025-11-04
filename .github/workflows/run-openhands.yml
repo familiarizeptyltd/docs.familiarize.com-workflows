@@ -154,78 +154,93 @@ jobs:
           OPENHANDS_HARD_TIMEOUT_SEC: ${{ env.OPENHANDS_HARD_TIMEOUT_SEC }}
         run: |
           set -Eeuo pipefail
+
           mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.openhands" "${REPO_DIR}/.agent"
           chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" || true
+
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
           echo "✅ Found goal on host: ${HOST_GOAL}"
-          
+
           # Create wrapped goal file
           WRAPPED_HOST="${REPO_DIR}/.agent/_wrapped_goal.md"
           cat > "${WRAPPED_HOST}" << 'GOAL_EOF'
           # SYSTEM EXECUTION DIRECTIVE
           You are CodeActAgent running in a Git repo at /workspace.
-          
+
           ## REQUIRED ACTIONS
           1) Plan briefly.
           2) Create the exact new Markdown files requested (do NOT just propose).
           3) Validate YAML front matter and dates.
           4) Save files to the exact required paths.
           5) Finish when files are written.
-          
+
           ## CONSTRAINTS
           - Maximum 60 steps total
           - If tags file is missing, pick 1-2 best-fit existing tags or skip with note; still create files.
           - If any directory is missing, create it and continue.
-          
+
           ----- ORIGINAL GOAL BELOW -----
           GOAL_EOF
           cat "${HOST_GOAL}" >> "${WRAPPED_HOST}"
-          
-          # Build proper OpenHands config
-          CFG="${REPO_DIR}/.openhands/config.toml"
-          cat > "${CFG}" << 'CFG_EOF'
-          [llm]
-          model = "gpt-4o-mini"
-          api_key = "${LLM_API_KEY}"
-          
-          [agent]
-          name = "CodeActAgent"
-          max_iterations = 60
-          
-          [sandbox]
-          runtime_container_image = "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
-          
-          [search]
-          engine = "tavily"
-          api_key = "${TAVILY_API_KEY}"
-          CFG_EOF
-          
-          # Replace placeholders in config
-          sed -i "s|\${LLM_API_KEY}|${LLM_API_KEY}|g" "${CFG}"
-          sed -i "s|\${SANDBOX_RUNTIME_CONTAINER_IMAGE}|${SANDBOX_RUNTIME_CONTAINER_IMAGE}|g" "${CFG}"
-          sed -i "s|\${TAVILY_API_KEY}|${TAVILY_API_KEY:-}|g" "${CFG}"
-          
-          echo "[]" > "${REPO_DIR}/.openhands/mcp.json"
-          
-          # Map provider to env
+
+          # Map provider to key(s) FIRST (avoid unbound variable under `set -u`)
+          LLM_API_KEY=""
+          LLM_BASE_URL=""
           case "${LLM_PROVIDER}" in
             openai)
-              export LLM_API_KEY="${OPENAI_API_KEY}"
+              LLM_API_KEY="${OPENAI_API_KEY:-}"
               ;;
             openai_compat)
-              export LLM_API_KEY="${OPENAI_COMPAT_API_KEY}"
-              export LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL}"
+              LLM_API_KEY="${OPENAI_COMPAT_API_KEY:-}"
+              LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL:-}"
               ;;
             grok)
-              export LLM_API_KEY="${GROK_API_KEY}"
+              LLM_API_KEY="${GROK_API_KEY:-}"
               ;;
             *)
-              echo "Unsupported LLM provider: ${LLM_PROVIDER}"
+              echo "❌ Unsupported LLM provider: ${LLM_PROVIDER}"
               exit 1
               ;;
           esac
-          
-          # Run OpenHands with proper configuration
+
+          if [[ -z "${LLM_API_KEY:-}" ]]; then
+            echo "❌ Missing API key for provider '${LLM_PROVIDER}'. Ensure the corresponding secret is set."
+            exit 1
+          fi
+
+          # Build OpenHands config AFTER vars are set
+          CFG="${REPO_DIR}/.openhands/config.toml"
+          {
+            echo "[llm]"
+            echo "model = \"${LLM_MODEL}\""
+            echo "api_key = \"${LLM_API_KEY}\""
+            # Optional base_url for compat/self-hosted endpoints
+            if [[ -n "${LLM_BASE_URL:-}" ]]; then
+              echo "base_url = \"${LLM_BASE_URL}\""
+            fi
+
+            echo ""
+            echo "[agent]"
+            echo "name = \"CodeActAgent\""
+            echo "max_iterations = 60"
+
+            echo ""
+            echo "[sandbox]"
+            echo "runtime_container_image = \"${SANDBOX_RUNTIME_CONTAINER_IMAGE}\""
+
+            # Search: include Tavily only if present
+            if [[ -n "${TAVILY_API_KEY:-}" ]]; then
+              echo ""
+              echo "[search]"
+              echo "engine = \"tavily\""
+              echo "api_key = \"${TAVILY_API_KEY}\""
+            fi
+          } > "${CFG}"
+
+          # Minimal MCP registry (empty)
+          echo "[]" > "${REPO_DIR}/.openhands/mcp.json"
+
+          # Run OpenHands
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
@@ -245,6 +260,7 @@ jobs:
               --directory /workspace \
               --config-file /openhands/config/config.toml \
               --max-iterations 60
+
       - name: Show agent output dir
         run: |
           echo "------- Agent output dir -------"
