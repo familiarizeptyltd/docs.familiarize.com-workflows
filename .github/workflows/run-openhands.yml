@@ -223,6 +223,7 @@ jobs:
           # Run OpenHands (0.60 flags)
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /usr/bin/docker:/usr/bin/docker:ro \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/openhands/logs" \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/openhands/config" \
@@ -231,6 +232,7 @@ jobs:
             -w /workspace \
             --add-host host.docker.internal:host-gateway \
             -e HOME="/home/enduser" \
+            -e DOCKER_HOST="unix:///var/run/docker.sock" \
             -e SANDBOX_USER_ID="$(id -u)" \
             -e LLM_API_KEY="${LLM_API_KEY}" \
             -e LLM_MODEL="${LLM_MODEL}" \
