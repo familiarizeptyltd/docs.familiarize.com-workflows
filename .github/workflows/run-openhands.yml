@@ -33,8 +33,8 @@ jobs:
       # Logging
       AGENT_LOG_DIR: openhands_run
       OPENHANDS_LOG_LEVEL: warning
-      OPENHANDS_MAX_STEPS: "60"
-      OPENHANDS_HARD_TIMEOUT_SEC: "1200"
+      OPENHANDS_MAX_STEPS: "150"
+      OPENHANDS_HARD_TIMEOUT_SEC: "2400"
 
     steps:
       - name: Checkout workflows repo (this repo)
@@ -158,50 +158,56 @@ jobs:
           chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" || true
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
           echo "✅ Found goal on host: ${HOST_GOAL}"
-          ls -la "${REPO_DIR}/.agent" || true
+          
+          # Create wrapped goal file
           WRAPPED_HOST="${REPO_DIR}/.agent/_wrapped_goal.md"
-          {
-            printf '%s\n' "# SYSTEM EXECUTION DIRECTIVE"
-            printf '%s\n\n' "You are CodeActAgent running headless in a Git repo at /workspace."
-            printf '%s\n' "## REQUIRED ACTIONS"
-            printf '%s\n' "1) Plan briefly."
-            printf '%s\n' "2) Create the exact new Markdown files requested (do NOT just propose)."
-            printf '%s\n' "3) Validate YAML front matter and dates."
-            printf '%s\n' "4) Save files to the exact required paths."
-            printf '%s\n\n' "5) Finish when files are written."
-            printf '%s\n' "## GUARANTEES"
-            printf '%s\n' "- If tags file is missing, pick 1–2 best-fit existing tags or skip with note; still create files."
-            printf '%s\n\n' "- If any directory is missing, create it and continue."
-            printf '%s\n\n' "----- ORIGINAL GOAL BELOW -----"
-            cat "${HOST_GOAL}"
-          } > "${WRAPPED_HOST}"
-          # Build OpenHands config (Hugo-safe)
+          cat > "${WRAPPED_HOST}" << 'GOAL_EOF'
+          # SYSTEM EXECUTION DIRECTIVE
+          You are CodeActAgent running in a Git repo at /workspace.
+          
+          ## REQUIRED ACTIONS
+          1) Plan briefly.
+          2) Create the exact new Markdown files requested (do NOT just propose).
+          3) Validate YAML front matter and dates.
+          4) Save files to the exact required paths.
+          5) Finish when files are written.
+          
+          ## CONSTRAINTS
+          - Maximum 60 steps total
+          - If tags file is missing, pick 1-2 best-fit existing tags or skip with note; still create files.
+          - If any directory is missing, create it and continue.
+          
+          ----- ORIGINAL GOAL BELOW -----
+          GOAL_EOF
+          cat "${HOST_GOAL}" >> "${WRAPPED_HOST}"
+          
+          # Build proper OpenHands config
           CFG="${REPO_DIR}/.openhands/config.toml"
-          {
-            printf '%s\n' '[core]'
-            printf '%s\n' 'agent = "CodeActAgent"'
-            printf '%s\n' "max_steps = ${OPENHANDS_MAX_STEPS}"
-            printf '%s\n' "hard_timeout_sec = ${OPENHANDS_HARD_TIMEOUT_SEC}"
-            printf '%s\n' 'enable_browsing = true'
-            printf '%s\n' 'enable_search = true'
-            printf '%s\n' ''
-            printf '%s\n' '[workspace]'
-            printf '%s\n' 'root = "/workspace"'
-            printf '%s\n' 'write_whitelist_globs = ['
-            printf '%s\n' '  "content/**",'
-            printf '%s\n' '  "themes/**",'
-            printf '%s\n' '  ".agent/**",'
-            printf '%s\n' '  ".env",'
-            printf '%s\n' '  ".openhands/**",'
-            printf '%s\n' '  "static/**",'
-            printf '%s\n' '  "*.md"'
-            printf '%s\n' ']'
-            printf '%s\n' ''
-            printf '%s\n' '[search]'
-            printf '%s\n' 'provider = "tavily"'
-          } > "${CFG}"
+          cat > "${CFG}" << 'CFG_EOF'
+          [llm]
+          model = "gpt-4o-mini"
+          api_key = "${LLM_API_KEY}"
+          
+          [agent]
+          name = "CodeActAgent"
+          max_iterations = 60
+          
+          [sandbox]
+          runtime_container_image = "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
+          
+          [search]
+          engine = "tavily"
+          api_key = "${TAVILY_API_KEY}"
+          CFG_EOF
+          
+          # Replace placeholders in config
+          sed -i "s|\${LLM_API_KEY}|${LLM_API_KEY}|g" "${CFG}"
+          sed -i "s|\${SANDBOX_RUNTIME_CONTAINER_IMAGE}|${SANDBOX_RUNTIME_CONTAINER_IMAGE}|g" "${CFG}"
+          sed -i "s|\${TAVILY_API_KEY}|${TAVILY_API_KEY:-}|g" "${CFG}"
+          
           echo "[]" > "${REPO_DIR}/.openhands/mcp.json"
-          # Map provider to env the container expects
+          
+          # Map provider to env
           case "${LLM_PROVIDER}" in
             openai)
               export LLM_API_KEY="${OPENAI_API_KEY}"
@@ -218,33 +224,27 @@ jobs:
               exit 1
               ;;
           esac
-          # Optional browsing flag (robust to unset/CRLF)
-          if [[ "${OH_ENABLE_BROWSING:-}" == "true" ]]; then
-            export AGENT_ENABLE_BROWSING="true"
-          fi
-          # Single-line docker run to avoid CRLF/backslash pitfalls
-          docker run --rm --pull=always -v /var/run/docker.sock:/var/run/docker.sock \
+          
+          # Run OpenHands with proper configuration
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
-            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/logs" \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/.openhands" \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/home/enduser/.openhands" \
-            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands/config.toml:/workspace/config.toml:ro" \
-            -w /workspace --add-host host.docker.internal:host-gateway \
+            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/openhands/logs" \
+            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/openhands/config" \
+            -w /workspace \
+            --add-host host.docker.internal:host-gateway \
             -e HOME="/home/enduser" \
             -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
             -e SANDBOX_USER_ID="$(id -u)" \
-            -e LLM_PROVIDER="${LLM_PROVIDER}" \
+            -e LLM_API_KEY="${LLM_API_KEY}" \
             -e LLM_MODEL="${LLM_MODEL}" \
-            -e LLM_API_KEY="${LLM_API_KEY:-}" \
-            -e LLM_BASE_URL="${LLM_BASE_URL:-}" \
-            -e AGENT_ENABLE_BROWSING="${AGENT_ENABLE_BROWSING:-}" \
-            -e OH_ENABLE_SEARCH="${OH_ENABLE_SEARCH}" \
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
-            -e OPENHANDS_LOG_LEVEL="${OPENHANDS_LOG_LEVEL:-warning}" \
-            -e OPENHANDS_MAX_STEPS="${OPENHANDS_MAX_STEPS:-60}" \
-            -e OPENHANDS_HARD_TIMEOUT_SEC="${OPENHANDS_HARD_TIMEOUT_SEC:-1200}" \
-            -e GOAL_ABS="/workspace/.agent/_wrapped_goal.md" \
-            "${OPENHANDS_IMAGE}" bash -lc 'set -Eeuo pipefail; VENV_PY="/app/.venv/bin/python"; test -f "/workspace/.agent/_wrapped_goal.md" || { echo "❌ Goal not visible"; ls -la /workspace/.agent || true; exit 1; }; "$VENV_PY" -m pip install --no-cache-dir --disable-pip-version-check -q python-dotenv || true; exec "$VENV_PY" -m openhands.core.main -f "/workspace/.agent/_wrapped_goal.md" -d "/workspace"'
+            "${OPENHANDS_IMAGE}" \
+            python -m openhands.core.main \
+              --task-file "/workspace/.agent/_wrapped_goal.md" \
+              --directory /workspace \
+              --config-file /openhands/config/config.toml \
+              --max-iterations 60
       - name: Show agent output dir
         run: |
           echo "------- Agent output dir -------"
