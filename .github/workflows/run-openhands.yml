@@ -256,10 +256,11 @@ jobs:
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
             "${OPENHANDS_IMAGE}" \
             python -m openhands.core.main \
-              --task-file "/workspace/.agent/_wrapped_goal.md" \
-              --directory /workspace \
               --config-file /openhands/config/config.toml \
-              --max-iterations 60
+              -f "/workspace/.agent/_wrapped_goal.md" \
+              -d /workspace \
+              -i 60 \
+              --log-level "${OPENHANDS_LOG_LEVEL}"
 
       - name: Show agent output dir
         run: |
