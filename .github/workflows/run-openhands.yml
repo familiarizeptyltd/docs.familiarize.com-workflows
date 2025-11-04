@@ -155,8 +155,8 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.openhands" "${REPO_DIR}/.agent"
-          chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" || true
+          mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.openhands" "${REPO_DIR}/.agent" "${REPO_DIR}/.openhands_state"
+          chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands_state" || true
 
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
           echo "✅ Found goal on host: ${HOST_GOAL}"
@@ -183,61 +183,41 @@ jobs:
           GOAL_EOF
           cat "${HOST_GOAL}" >> "${WRAPPED_HOST}"
 
-          # Map provider to key(s) FIRST (avoid unbound variable under `set -u`)
-          LLM_API_KEY=""
-          LLM_BASE_URL=""
+          # Map provider to key(s) FIRST
+          LLM_API_KEY=""; LLM_BASE_URL=""
           case "${LLM_PROVIDER}" in
-            openai)
-              LLM_API_KEY="${OPENAI_API_KEY:-}"
-              ;;
-            openai_compat)
-              LLM_API_KEY="${OPENAI_COMPAT_API_KEY:-}"
-              LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL:-}"
-              ;;
-            grok)
-              LLM_API_KEY="${GROK_API_KEY:-}"
-              ;;
-            *)
-              echo "❌ Unsupported LLM provider: ${LLM_PROVIDER}"
-              exit 1
-              ;;
+            openai)         LLM_API_KEY="${OPENAI_API_KEY:-}" ;;
+            openai_compat)  LLM_API_KEY="${OPENAI_COMPAT_API_KEY:-}"; LLM_BASE_URL="${OPENAI_COMPAT_BASE_URL:-}" ;;
+            grok)           LLM_API_KEY="${GROK_API_KEY:-}" ;;
+            *) echo "❌ Unsupported LLM provider: ${LLM_PROVIDER}"; exit 1 ;;
           esac
-
           if [[ -z "${LLM_API_KEY:-}" ]]; then
             echo "❌ Missing API key for provider '${LLM_PROVIDER}'. Ensure the corresponding secret is set."
             exit 1
           fi
 
-          # Build OpenHands config AFTER vars are set
+          # Build OpenHands config (0.60-compatible)
           CFG="${REPO_DIR}/.openhands/config.toml"
           {
+            echo "[core]"
+            echo "file_store = \"local\""
+            echo "file_store_path = \"/openhands/state\""
+            echo "log_level = \"${OPENHANDS_LOG_LEVEL}\""
+
+            echo ""
             echo "[llm]"
             echo "model = \"${LLM_MODEL}\""
             echo "api_key = \"${LLM_API_KEY}\""
-            # Optional base_url for compat/self-hosted endpoints
             if [[ -n "${LLM_BASE_URL:-}" ]]; then
               echo "base_url = \"${LLM_BASE_URL}\""
             fi
 
             echo ""
-            echo "[agent]"
-            echo "name = \"CodeActAgent\""
-            echo "max_iterations = 60"
-
-            echo ""
             echo "[sandbox]"
             echo "runtime_container_image = \"${SANDBOX_RUNTIME_CONTAINER_IMAGE}\""
-
-            # Search: include Tavily only if present
-            if [[ -n "${TAVILY_API_KEY:-}" ]]; then
-              echo ""
-              echo "[search]"
-              echo "engine = \"tavily\""
-              echo "api_key = \"${TAVILY_API_KEY}\""
-            fi
           } > "${CFG}"
 
-          # Minimal MCP registry (empty)
+          # Minimal MCP registry
           echo "[]" > "${REPO_DIR}/.openhands/mcp.json"
 
           # Run OpenHands
@@ -246,6 +226,7 @@ jobs:
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}:/workspace" \
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/openhands/logs" \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/openhands/config" \
+            -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands_state:/openhands/state" \
             -w /workspace \
             --add-host host.docker.internal:host-gateway \
             -e HOME="/home/enduser" \
