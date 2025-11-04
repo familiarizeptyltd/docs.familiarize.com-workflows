@@ -1,25 +1,147 @@
+name: OpenHands
+
+on:
+  workflow_dispatch:
+
+jobs:
+  openhands:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    env:
+      # ==== Your knobs ====
+      TARGET_REPO: familiarizeptyltd/docs.familiarize.com
+      REPO_DIR: docs_repo
+      TARGET_BRANCH: agent/openhands-run
+
+      PROMPT_TEMPLATE: prompts/country-topic-template.md
+      PROFILE_KEY: UAE
+      RAW_PROMPT_FILE: prompts/uae-pages.md
+
+      # LLM + browsing/search
+      LLM_PROVIDER: openai            # openai | openai_compat | grok
+      LLM_MODEL: gpt-4o-mini
+      OH_ENABLE_BROWSING: "true"
+      OH_ENABLE_SEARCH: "true"
+
+      # Images
+      SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.openhands.dev/openhands/runtime:0.60-nikolaik
+      OPENHANDS_IMAGE: docker.openhands.dev/openhands/openhands:0.60
+
+      # Logging
+      AGENT_LOG_DIR: openhands_run
+      OPENHANDS_LOG_LEVEL: warning
+      OPENHANDS_MAX_STEPS: "150"
+      OPENHANDS_HARD_TIMEOUT_SEC: "2400"
+
+    steps:
+      - name: Checkout workflows repo (this repo)
+        uses: actions/checkout@v4
+
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPO }}
+          path: ${{ env.REPO_DIR }}
+          token: ${{ secrets.REPO_TOKEN }}
+          fetch-depth: 0
+          submodules: true
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install helper deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pygithub
+
+      - name: Render/fallback prompt file
+        env:
+          PROFILE_KEY: ${{ env.PROFILE_KEY }}
+          PROMPT_TEMPLATE: ${{ env.PROMPT_TEMPLATE }}
+          RAW_PROMPT_FILE: ${{ env.RAW_PROMPT_FILE }}
+          REPO_DIR: ${{ env.REPO_DIR }}
+        run: |
+          set -Eeuo pipefail
+          TEMPLATE_PATH="${REPO_DIR}/${PROMPT_TEMPLATE}"
+          PROFILES_NEW="${REPO_DIR}/prompts/country-profiles.json"
+          PROFILES_OLD="${REPO_DIR}/prompts/country_profiles.json"
+          RAW_PATH="${REPO_DIR}/${RAW_PROMPT_FILE}"
+          mkdir -p "${REPO_DIR}/.agent"
+          use_template=false
+          if [[ -f "${PROFILES_NEW}" ]]; then PROFILES_PATH="${PROFILES_NEW}";
+          elif [[ -f "${PROFILES_OLD}" ]]; then PROFILES_PATH="${PROFILES_OLD}";
+          else PROFILES_PATH=""; fi
+          if [[ -n "${PROMPT_TEMPLATE}" && -f "${TEMPLATE_PATH}" && -n "${PROFILES_PATH}" ]]; then
+            use_template=true
+          fi
+          if $use_template; then
+            echo "Using template: ${TEMPLATE_PATH} (profile=${PROFILE_KEY}) with ${PROFILES_PATH}"
+            python scripts/render_prompt.py \
+              --profiles "${PROFILES_PATH}" \
+              --profile-key "${PROFILE_KEY}" \
+              --template   "${TEMPLATE_PATH}" \
+              --output     "${REPO_DIR}/.agent/rendered_prompt.md"
+            echo "PROMPT_FILE=.agent/rendered_prompt.md" >> "$GITHUB_ENV"
+          else
+            echo "Template/profiles missing. Falling back to RAW: ${RAW_PATH}"
+            if [[ ! -f "${RAW_PATH}" ]]; then
+              echo "❌ Missing inputs. Need either template+profiles or RAW."
+              exit 1
+            fi
+            echo "PROMPT_FILE=${RAW_PROMPT_FILE}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure prompt exists
+        env:
+          REPO_DIR: ${{ env.REPO_DIR }}
+        run: |
+          set -Eeuo pipefail
+          test -f "${REPO_DIR}/${PROMPT_FILE}" || (echo "❌ Prompt not found: ${REPO_DIR}/${PROMPT_FILE}"; exit 1)
+
+      - name: Configure git author
+        working-directory: ${{ env.REPO_DIR }}
+        run: |
+          git config user.name  "ci-agent"
+          git config user.email "ci-agent@users.noreply.github.com"
+
+      - name: Create/switch target branch
+        working-directory: ${{ env.REPO_DIR }}
+        env:
+          TARGET_BRANCH: ${{ env.TARGET_BRANCH }}
+        run: |
+          set -Eeuo pipefail
+          if git rev-parse --verify "${TARGET_BRANCH}" >/dev/null 2>&1; then
+            git checkout "${TARGET_BRANCH}"
+          else
+            git checkout -b "${TARGET_BRANCH}"
+          fi
+
+      - name: Pull runtime images
+        env:
+          SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
+          OPENHANDS_IMAGE: ${{ env.OPENHANDS_IMAGE }}
+        run: |
+          docker pull "${SANDBOX_RUNTIME_CONTAINER_IMAGE}"
+          docker pull "${OPENHANDS_IMAGE}"
+
       - name: Launch OpenHands (hardened + docker CLI mount)
         env:
-          # repo + files
           REPO_DIR: ${{ env.REPO_DIR }}
           AGENT_LOG_DIR: ${{ env.AGENT_LOG_DIR }}
-
-          # images
           OPENHANDS_IMAGE: ${{ env.OPENHANDS_IMAGE }}
           SANDBOX_RUNTIME_CONTAINER_IMAGE: ${{ env.SANDBOX_RUNTIME_CONTAINER_IMAGE }}
-
-          # provider selection
           LLM_PROVIDER: ${{ env.LLM_PROVIDER }}
           LLM_MODEL: ${{ env.LLM_MODEL }}
-
-          # keys
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-
-          # tuning
           OPENHANDS_LOG_LEVEL: ${{ env.OPENHANDS_LOG_LEVEL }}
         run: |
           set -Eeuo pipefail
@@ -27,7 +149,7 @@
           mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.openhands" "${REPO_DIR}/.agent" "${REPO_DIR}/.openhands_state" "${AGENT_LOG_DIR}/dot_openhands" "${AGENT_LOG_DIR}/bin"
           chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands_state" "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}/dot_openhands" || true
 
-          # --- Make a stable copy of the host docker CLI to mount into multiple PATH locations ---
+          # Copy host docker CLI for reliable access inside app container
           if [[ ! -x /usr/bin/docker ]]; then
             echo "❌ Host docker CLI not found at /usr/bin/docker"; which docker || true; exit 1
           fi
@@ -59,7 +181,7 @@
           GOAL_EOF
           cat "${HOST_GOAL}" >> "${WRAPPED_HOST}"
 
-          # Map provider → key(s)
+          # Provider → key(s)
           LLM_API_KEY=""; LLM_BASE_URL=""
           case "${LLM_PROVIDER}" in
             openai)         LLM_API_KEY="${OPENAI_API_KEY:-}" ;;
@@ -71,14 +193,13 @@
             echo "❌ Missing API key for provider '${LLM_PROVIDER}'"; exit 1
           fi
 
-          # Build OpenHands config (0.60)
+          # Config (0.60)
           CFG="${REPO_DIR}/.openhands/config.toml"
           {
             echo "[core]"
             echo "file_store      = \"local\""
             echo "file_store_path = \"/.openhands\""
             echo "jwt_secret      = \"${GITHUB_RUN_ID:-gha}.${GITHUB_RUN_NUMBER:-0}.${RANDOM}${RANDOM}\""
-
             echo ""
             echo "[llm]"
             echo "model = \"${LLM_MODEL}\""
@@ -86,16 +207,14 @@
             if [[ -n "${LLM_BASE_URL:-}" ]]; then
               echo "base_url = \"${LLM_BASE_URL}\""
             fi
-
             echo ""
             echo "[sandbox]"
             echo "base_container_image = \"${SANDBOX_RUNTIME_CONTAINER_IMAGE}\""
           } > "${CFG}"
 
-          # Minimal MCP registry
           echo "[]" > "${REPO_DIR}/.openhands/mcp.json"
 
-          # --- Preflight inside the app container: prove docker CLI is accessible and working ---
+          # Preflight: verify docker inside the app container
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}/bin/docker:/usr/bin/docker:ro" \
@@ -103,9 +222,9 @@
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}/bin/docker:/usr/local/bin/docker:ro" \
             -w / \
             "${OPENHANDS_IMAGE}" \
-            bash -lc 'set -euxo pipefail; which docker; docker version; echo "Docker CLI OK inside app container."'
+            bash -euxo pipefail -c "which docker && docker version && echo Docker CLI OK"
 
-          # --- Run OpenHands (0.60 flags) ---
+          # Run OpenHands
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}/bin/docker:/usr/bin/docker:ro" \
@@ -125,10 +244,24 @@
             -e LLM_MODEL="${LLM_MODEL}" \
             -e TAVILY_API_KEY="${TAVILY_API_KEY:-}" \
             "${OPENHANDS_IMAGE}" \
-            bash -lc 'set -e; which docker || (echo "docker not found"; exit 1); docker version; \
+            bash -euxo pipefail -c "
+              which docker && docker version
               python -m openhands.core.main \
                 --config-file /openhands/config/config.toml \
-                -f "/workspace/.agent/_wrapped_goal.md" \
+                -f \"/workspace/.agent/_wrapped_goal.md\" \
                 -d /workspace \
                 -i 60 \
-                --log-level "'"${OPENHANDS_LOG_LEVEL}"'"'
+                --log-level \"${OPENHANDS_LOG_LEVEL}\"
+            "
+
+      - name: Show agent output dir
+        run: |
+          echo "------- Agent output dir -------"
+          ls -la "${AGENT_LOG_DIR}" || true
+
+      - name: Upload agent logs (if any)
+        uses: actions/upload-artifact@v4
+        with:
+          name: openhands-run-${{ github.run_id }}
+          path: ${{ env.AGENT_LOG_DIR }}/
+          if-no-files-found: warn
