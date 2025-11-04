@@ -200,8 +200,12 @@ jobs:
           CFG="${REPO_DIR}/.openhands/config.toml"
           {
             echo "[core]"
-            echo "file_store = \"local\""
-            echo "file_store_path = \"/openhands/state\""
+            # Avoid on-disk writes for JWT/state
+            echo "file_store = \"memory\""
+            # If you prefer disk, keep 'local' and this path, but you must also mount it:
+            # echo "file_store_path = \"/openhands/state\""
+            # Provide a JWT explicitly so OpenHands won't try to create /.openhands/.jwt_secret
+            echo "jwt_secret = \"${GITHUB_RUN_ID:-gha}.${GITHUB_RUN_NUMBER:-0}.${RANDOM}${RANDOM}\""            
 
             echo ""
             echo "[llm]"
@@ -213,7 +217,7 @@ jobs:
 
             echo ""
             echo "[sandbox]"
-            echo "runtime_container_image = \"${SANDBOX_RUNTIME_CONTAINER_IMAGE}\""
+            echo "base_container_image = \"${SANDBOX_RUNTIME_CONTAINER_IMAGE}\""
           } > "${CFG}"
 
           # Minimal MCP registry
