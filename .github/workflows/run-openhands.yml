@@ -155,8 +155,8 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.openhands" "${REPO_DIR}/.agent" "${REPO_DIR}/.openhands_state"
-          chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands_state" || true
+          mkdir -p "${AGENT_LOG_DIR}" "${REPO_DIR}/.openhands" "${REPO_DIR}/.agent" "${REPO_DIR}/.openhands_state" "${AGENT_LOG_DIR}/dot_openhands"
+          chmod 0777 "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands" "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands_state" "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}/dot_openhands" || true
 
           HOST_GOAL="${REPO_DIR}/${PROMPT_FILE}"
           echo "✅ Found goal on host: ${HOST_GOAL}"
@@ -230,10 +230,10 @@ jobs:
             -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}:/openhands/logs" \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands:/openhands/config" \
             -v "${GITHUB_WORKSPACE}/${REPO_DIR}/.openhands_state:/openhands/state" \
+            -v "${GITHUB_WORKSPACE}/${AGENT_LOG_DIR}/dot_openhands:/.openhands" \
             -w /workspace \
             --add-host host.docker.internal:host-gateway \
-            -e HOME="/home/enduser" \
-            -e SANDBOX_RUNTIME_CONTAINER_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE}" \
+            -e HOME="/home/enduser" \            
             -e SANDBOX_USER_ID="$(id -u)" \
             -e LLM_API_KEY="${LLM_API_KEY}" \
             -e LLM_MODEL="${LLM_MODEL}" \
