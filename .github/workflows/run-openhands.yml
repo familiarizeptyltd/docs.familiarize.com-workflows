@@ -202,7 +202,6 @@ jobs:
             echo "[core]"
             echo "file_store = \"local\""
             echo "file_store_path = \"/openhands/state\""
-            echo "log_level = \"${OPENHANDS_LOG_LEVEL}\""
 
             echo ""
             echo "[llm]"
