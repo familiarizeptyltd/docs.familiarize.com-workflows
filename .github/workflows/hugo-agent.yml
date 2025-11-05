@@ -8,7 +8,7 @@ on:
         default: 'prompts/country-pages-prompt.txt'
         type: string
       country:
-        description: 'Target country (e.g., Singapore)'
+        description: 'Target country (e.g., Singapore, UAE, USA, UK)'
         required: true
         default: 'UAE'
         type: string
@@ -131,12 +131,12 @@ jobs:
 
           # Run the agent
           python src/main.py \
-            --repo-path ${HUGO_REPO_PATH} \
-            --prompt-file ${PROMPT_FILE} \
-            --country ${COUNTRY} \
-            --num-pages ${NUM_PAGES} \
-            --llm-provider ${LLM_PROVIDER} \
-            --dry-run ${DRY_RUN}
+            --repo-path "${HUGO_REPO_PATH}" \
+            --prompt-file "${PROMPT_FILE}" \
+            --country "${COUNTRY}" \
+            --num-pages "${NUM_PAGES}" \
+            --llm-provider "${LLM_PROVIDER}" \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
 
           # Store outputs for next steps
           echo "AGENT_COMPLETED=true" >> $GITHUB_ENV
