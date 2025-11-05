@@ -79,6 +79,13 @@ jobs:
         run: |
           gh --version
 
+      - name: Configure Git Identity
+        run: |
+          cd hugo-repo
+          git config user.name "Hugo Agent Bot"
+          git config user.email "hugoagent@familiarize.com"
+          cd ..
+
       - name: Run Hugo Agent
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
