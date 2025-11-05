@@ -11,11 +11,11 @@ on:
       country:
         description: 'Target country'
         required: true
-        default: 'Singapore'
+        default: 'UAE'
       num_pages:
         description: 'Number of pages to generate'
         required: false
-        default: '12'
+        default: '3'
       llm_provider:
         description: 'LLM provider (openai/grok/gpt-oss)'
         required: false
@@ -23,7 +23,7 @@ on:
       llm_model:
         description: 'LLM model'
         required: false
-        default: 'gpt-4o'
+        default: 'gpt-4o-mini'
       dry_run:
         description: 'Dry run mode (no PR creation)'
         required: false
