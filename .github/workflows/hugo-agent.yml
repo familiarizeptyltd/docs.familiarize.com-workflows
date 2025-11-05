@@ -1,0 +1,224 @@
+name: Hugo Content Agent
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_file:
+        description: 'Path to prompt file in Hugo repo (relative to repo root)'
+        required: true
+        default: 'prompts/country-pages-prompt.txt'
+        type: string
+      country:
+        description: 'Target country (e.g., Singapore)'
+        required: true
+        default: 'UAE'
+        type: string
+      num_pages:
+        description: 'Number of pages to generate'
+        required: true
+        default: '3'
+        type: string
+      llm_provider:
+        description: 'LLM provider (openai/grok/gpt-oss)'
+        required: false
+        default: 'openai'
+        type: choice
+        options:
+          - openai
+          - grok
+          - gpt-oss
+      dry_run:
+        description: 'Dry run mode (validate without creating PR)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # 1. Checkout the AGENT CODE (private repo)
+      - name: Checkout Hugo Agent Code
+        uses: actions/checkout@v4
+        with:
+          repository: salmansarfraz/hugoAgent
+          token: ${{ secrets.AGENT_REPO_PAT }}
+          path: agent-code
+          fetch-depth: 0
+
+      # 2. Checkout the HUGO SITE (private repo)
+      - name: Checkout Hugo Site
+        uses: actions/checkout@v4
+        with:
+          repository: familiarizeptyltd/docs.familiarize.com
+          token: ${{ secrets.REPO_TOKEN }}
+          path: hugo-site
+          fetch-depth: 0
+
+      # 3. Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 4. Install dependencies
+      - name: Install Dependencies
+        run: |
+          cd agent-code
+          pip install -r requirements.txt
+
+      # 5. Install Hugo
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: 'latest'
+          extended: true
+
+      # 6. Validate inputs
+      - name: Validate Inputs
+        run: |
+          echo "Validating inputs..."
+          if [ -z "${{ github.event.inputs.prompt_file }}" ]; then
+            echo "Error: prompt_file is required"
+            exit 1
+          fi
+          if [ -z "${{ github.event.inputs.country }}" ]; then
+            echo "Error: country is required"
+            exit 1
+          fi
+          if [ -z "${{ github.event.inputs.num_pages }}" ]; then
+            echo "Error: num_pages is required"
+            exit 1
+          fi
+          echo "Inputs validated successfully"
+
+      # 7. Run the agent
+      - name: Run Hugo Agent
+        id: run-agent
+        env:
+          # LLM API Keys
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GPT_OSS_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
+          GPT_OSS_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+
+          # Search API Keys
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          GOOGLE_CSE_KEY: ${{ secrets.GOOGLE_CUSTOM_SEARCH_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
+
+          # GitHub tokens
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+
+          # Run configuration
+          HUGO_REPO_PATH: ../hugo-site
+          PROMPT_FILE: ${{ github.event.inputs.prompt_file }}
+          COUNTRY: ${{ github.event.inputs.country }}
+          NUM_PAGES: ${{ github.event.inputs.num_pages }}
+          LLM_PROVIDER: ${{ github.event.inputs.llm_provider }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+
+        run: |
+          cd agent-code
+          echo "Starting Hugo Agent..."
+          echo "Country: $COUNTRY"
+          echo "Pages: $NUM_PAGES"
+          echo "LLM Provider: $LLM_PROVIDER"
+          echo "Dry Run: $DRY_RUN"
+
+          # Run the agent
+          python src/main.py \
+            --repo-path ${HUGO_REPO_PATH} \
+            --prompt-file ${PROMPT_FILE} \
+            --country ${COUNTRY} \
+            --num-pages ${NUM_PAGES} \
+            --llm-provider ${LLM_PROVIDER} \
+            --dry-run ${DRY_RUN}
+
+          # Store outputs for next steps
+          echo "AGENT_COMPLETED=true" >> $GITHUB_ENV
+
+      # 8. Upload artifacts (logs, state, reports)
+      - name: Upload Agent Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hugo-agent-run-${{ github.run_id }}
+          path: |
+            agent-code/.agent-state/
+            agent-code/logs/
+            hugo-site/agent-run-${{ github.run_id }}/
+          retention-days: 30
+
+      # 9. Generate run summary
+      - name: Generate Run Summary
+        if: always()
+        run: |
+          echo "## Hugo Agent Run Summary" >> summary.md
+          echo "" >> summary.md
+          echo "**Run ID:** ${{ github.run_id }}" >> summary.md
+          echo "**Triggered by:** ${{ github.actor }}" >> summary.md
+          echo "**Country:** ${{ github.event.inputs.country }}" >> summary.md
+          echo "**Pages:** ${{ github.event.inputs.num_pages }}" >> summary.md
+          echo "**LLM Provider:** ${{ github.event.inputs.llm_provider }}" >> summary.md
+          echo "**Dry Run:** ${{ github.event.inputs.dry_run }}" >> summary.md
+          echo "" >> summary.md
+
+          # Check if agent completed successfully
+          if [ -f "agent-code/.agent-state/runs/run-${{ github.run_id }}/state.json" ]; then
+            echo "**Status:** ✅ Completed" >> summary.md
+
+            # Extract metrics from state
+            STATE_FILE="agent-code/.agent-state/runs/run-${{ github.run_id }}/state.json"
+            if [ -f "$STATE_FILE" ]; then
+              PR_URL=$(jq -r '.pr_url // "Not created"' "$STATE_FILE")
+              PAGES_CREATED=$(jq -r '.completed_task_ids | length' "$STATE_FILE")
+              TOTAL_COST=$(jq -r '.costs.total_usd' "$STATE_FILE")
+
+              echo "**Pages Created:** $PAGES_CREATED" >> summary.md
+              echo "**Total Cost:** $${TOTAL_COST}" >> summary.md
+              echo "**PR URL:** $PR_URL" >> summary.md
+            fi
+          else
+            echo "**Status:** ❌ Failed" >> summary.md
+          fi
+
+          echo "" >> summary.md
+          echo "### Artifacts" >> summary.md
+          echo "- [Agent State & Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)" >> summary.md
+          echo "" >> summary.md
+
+      # 10. Comment on the workflow run
+      - name: Comment Run Summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('summary.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+      # 11. Notify on failure
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "Hugo Agent run failed!"
+          echo "Check the logs and artifacts for details."
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Repository: ${{ github.repository }}"
+
+      # 12. Success notification
+      - name: Success Notification
+        if: success()
+        run: |
+          echo "🎉 Hugo Agent completed successfully!"
+          echo "Check the PR in the Hugo repository for the generated content."
