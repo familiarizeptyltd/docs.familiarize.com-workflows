@@ -82,8 +82,8 @@ jobs:
       - name: Commit & Push Changes to Hugo repo
         run: |
           cd docs_repo
-          git config user.name "Salman Sarfraz"
-          git config user.email "kh.salman.sarfraz@gmail.com"
+          git config user.name "My agent"
+          git config user.email "my.agent@github.com"
           git fetch origin
           git pull --strategy=ours origin main
           git add .
