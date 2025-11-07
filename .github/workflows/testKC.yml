@@ -16,7 +16,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          repository: familiarizeptyltd/docs.familiarize.com
+          path: docs_repo
+          token: ${{ secrets.REPO_TOKEN }}
           fetch-depth: 0
+          submodules: true
 
       - name: Basics
         run: |
@@ -33,128 +37,55 @@ jobs:
       - name: Configure KiloCode (non-interactive; enable writes)
         run: |
           set -euxo pipefail
-          mkdir -p ~/.kilocode/cli ~/.kilocode
-          cat > ~/.kilocode/cli/config.json <<'JSON'
+          mkdir -p ~/.kilocode/cli
+          cat <<'EOF' > ~/.kilocode/cli/config.json
           {
-            "version": 1,
-            "currentProvider": "default",
+            "version": "1.0.0",
+            "mode": "code",
+            "telemetry": true,
+            "provider": "default",
             "providers": [
               {
                 "id": "default",
                 "provider": "kilocode",
-                "kilocodeToken": "__KILOCODE_TOKEN__",
+                "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "openai/gpt-4o-mini"
               }
             ],
             "autoApproval": {
               "enabled": true,
-              "read":    { "enabled": true,  "outside": false },
-              "write":   { "enabled": true,  "outside": false, "protected": false },
-              "execute": { "enabled": false, "allowed": [], "denied": [] },
-              "question": { "enabled": false, "timeout": 30 },
-              "retry":    { "enabled": true,  "delay": 5 }
-            }
+              "read": { "enabled": true, "outside": true },
+              "write": { "enabled": true, "outside": true, "protected": false },
+              "execute": {
+                "enabled": true,
+                "allowed": ["git", "npm", "pnpm"],
+                "denied": ["rm -rf", "sudo"]
+              },
+              "browser": { "enabled": false },
+              "mcp": { "enabled": true },
+              "mode": { "enabled": true },
+              "subtasks": { "enabled": true },
+              "question": { "enabled": false, "timeout": 60 },
+              "retry": { "enabled": true, "delay": 10 },
+              "todo": { "enabled": true }
+            },
+            "theme": "dark",
+            "customThemes": {}
           }
-          JSON
-          cp ~/.kilocode/cli/config.json ~/.kilocode/config.json
-          sed -i "s/__KILOCODE_TOKEN__/${KILOCODE_TOKEN//\//\\/}/" ~/.kilocode/cli/config.json ~/.kilocode/config.json
-          sudo apt-get update -y >/dev/null && sudo apt-get install -y jq >/dev/null
-          jq '(.providers[0].kilocodeToken)="***REDACTED***"' ~/.kilocode/cli/config.json
+          EOF
 
-      - name: Verify profile & balance (Bearer)
+      - name: Run Kilo Code in auto mode
         run: |
-          set -euxo pipefail
-          sudo apt-get update -y && sudo apt-get install -y jq
-          curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile | jq .
-          curl -fsS -H "Authorization: Bearer ${KILOCODE_TOKEN}" https://api.kilocode.ai/api/profile/balance | jq .
-
-      - name: Try KiloCode to WRITE the file (experiments)
-        env:
-          CI: "true"
-          TERM: "xterm-256color"
-          NO_COLOR: "1"
-          DEBUG: "kilocode:*,axios:*"
-          KILOCODE_HEADLESS: "0"
-          KILOCODE_NONINTERACTIVE: "1"
-          KILOCODE_ALLOW_WRITES: "1"
-          KILOCODE_ALLOW_TOOLS: "1"
+          kilocode --auto --workspace ./docs_repo --timeout 600 < docs_repo/prompts/uae-pages1.md
+          
+      - name: Commit & Push Changes to Hugo repo
         run: |
-          set -euxo pipefail
-
-          cat > prompt.txt <<'PROMPT'
-          Create or update a file named KILOCODE_DEMO.md at the repo root.
-          The content must be exactly:
-          # KiloCode CLI Demo
-          {{UTC_NOW}}
-          Hello from GitHub Actions.
-          PROMPT
-
-          PROMPT_ARG="$(tr '\n' ' ' < prompt.txt)"
-
-          try_kc () {
-            set +e
-            bash -lc "$1" 2>&1 | tee -a kilocode.log
-            rc=${PIPESTATUS[0]}
-            set -e
-            echo "cmd exit=$rc"
-            [ -f KILOCODE_DEMO.md ] && return 0 || return 1
-          }
-
-          # A: plain arg
-          try_kc "kilocode --auto \"${PROMPT_ARG}\" --timeout 300" \
-            || \
-          # B: with a pseudo-tty
-          try_kc "script -qfec 'kilocode --auto \"${PROMPT_ARG}\" --timeout 300' /dev/null" \
-            || \
-          # C: stdin
-          try_kc "printf '%s' \"${PROMPT_ARG}\" | kilocode --auto --timeout 300" \
-            || true
-
-          if [ -f KILOCODE_DEMO.md ]; then
-            echo "::notice::KiloCode created the file."
-          else
-            echo "::warning::KiloCode still didn't write in CI; fallback step will synthesize it."
-          fi
-
-      - name: Fallback (synthesize file if CLI did not write it)
-        run: |
-          set -euxo pipefail
-          if [ ! -f KILOCODE_DEMO.md ]; then
-            UTC_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            {
-              echo "# KiloCode CLI Demo"
-              echo "${UTC_NOW}"
-              echo "Hello from GitHub Actions."
-            } > KILOCODE_DEMO.md
-            echo "::notice::Wrote KILOCODE_DEMO.md via fallback."
-          fi
-          echo "Preview:"
-          head -n 20 KILOCODE_DEMO.md
-
-      - name: Commit & push if changed
-        run: |
-          set -euxo pipefail
-          # Exit early if the file doesn't exist
-          if [ ! -f KILOCODE_DEMO.md ]; then
-            echo "KILOCODE_DEMO.md not found; nothing to commit."
-            exit 0
-          fi
-
-          # Check if KILOCODE_DEMO.md has changes
-          if git diff --quiet --exit-code -- KILOCODE_DEMO.md; then
-            echo "No changes to KILOCODE_DEMO.md."
-            exit 0
-          fi
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -- KILOCODE_DEMO.md
-          git commit -m "chore: add/update KILOCODE_DEMO.md (CLI headless demo)"
-          git push
-
-      - name: Attach KiloCode logs (artifact)
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: kilocode-log
-          path: kilocode.log
+          cd docs_repo
+          git config user.name "Salman Sarfraz"
+          git config user.email "kh.salman.sarfraz@gmail.com"
+          git fetch origin
+          git pull --strategy=ours origin main
+          git add .
+          git diff --cached --quiet || git commit -m "Changes by KC on ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
+          # Push back to main branch of the Docs repo
+          git push origin HEAD:main
