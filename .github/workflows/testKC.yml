@@ -10,7 +10,7 @@ jobs:
       contents: write
 
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
 
     steps:
       - name: Checkout
@@ -47,10 +47,10 @@ jobs:
             "providers": [
               {
                 "id": "default",
-                "provider": "openai",
-                "openAiApiKey": "${OPENAI_API_KEY}",
-                "apiModelId": "gpt-4o-mini",
-                "openAiBaseUrl": ""
+                "provider": "kilocode",
+                "kilocodeToken": "${KILOCODE_TOKEN}",
+                "kilocodeModel": "openai/gpt-4o-mini",
+                "kilocodeOrganizationId": ""
               }
             ],
             "autoApproval": {
