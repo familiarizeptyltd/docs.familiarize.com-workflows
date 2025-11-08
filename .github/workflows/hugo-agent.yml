@@ -18,18 +18,6 @@ on:
         required: true
         default: 'familiarize/docs.familiarize.com'
         type: string
-      task_type:
-        description: 'Task category (content_generation/code_development/data_analysis/system_administration/research)'
-        required: false
-        default: 'content_generation'
-        type: choice
-        options:
-        - content_generation
-        - code_development
-        - data_analysis
-        - system_administration
-        - research
-        - business_analysis
       llm_provider:
         description: 'LLM provider (openai/grok/gpt-oss)'
         required: false
@@ -136,7 +124,6 @@ jobs:
           python -m src.main \
             --repo-path ../target-repo \
             --prompt "$PROMPT_CONTENT" \
-            --task-type "${{ github.event.inputs.task_type }}" \
             --llm-provider "${{ github.event.inputs.llm_provider }}" \
             --llm-model "${{ github.event.inputs.llm_model }}" \
             $DRY_RUN_FLAG
