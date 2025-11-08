@@ -42,7 +42,7 @@ on:
       llm_model:
         description: 'LLM model'
         required: false
-        default: 'gpt-4o'
+        default: 'gpt-4o-mini'
       dry_run:
         description: 'Dry run mode (no changes made)'
         required: false
