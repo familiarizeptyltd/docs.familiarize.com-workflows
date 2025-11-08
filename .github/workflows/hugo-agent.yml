@@ -64,8 +64,8 @@ jobs:
       - name: Checkout Universal AI Assistant repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ secrets.UAIA_REPO }}
-          token: ${{ secrets.UAIA_REPO_TOKEN }}
+          repository: ${{ secrets.AGENT_REPO }}
+          token: ${{ secrets.AGENT_REPO_TOKEN }}
           path: uaia
           fetch-depth: 0
 
