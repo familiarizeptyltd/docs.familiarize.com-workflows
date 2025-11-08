@@ -1,37 +1,55 @@
-name: Hugo Content Agent
+name: Universal AI Assistant
 
 on:
   workflow_dispatch:
     inputs:
-      prompt_file:
-        description: 'Path to prompt file in Hugo repo (relative to repo root)'
-        required: true
-        default: 'prompts/country-pages-prompt.txt'
-        type: string
-      country:
-        description: 'Target country'
-        required: true
-        default: 'UAE'
-      num_pages:
-        description: 'Number of pages to generate'
+      prompt_is_file:
+        description: 'Whether the prompt input is a file path (true) or direct content (false)'
         required: false
-        default: '3'
+        type: boolean
+        default: true
+      prompt:
+        description: 'Task description/prompt text or path to a prompt file in the target repository'
+        required: true
+        type: string
+      target_repo:
+        description: 'Target repository to operate on (ORG/REPO format)'
+        required: true
+        default: 'familiarize/docs.familiarize.com'
+        type: string
+      task_type:
+        description: 'Task category (content_generation/code_development/data_analysis/system_administration/research)'
+        required: false
+        default: 'content_generation'
+        type: choice
+        options:
+        - content_generation
+        - code_development
+        - data_analysis
+        - system_administration
+        - research
+        - business_analysis
       llm_provider:
         description: 'LLM provider (openai/grok/gpt-oss)'
         required: false
         default: 'openai'
+        type: choice
+        options:
+        - openai
+        - grok
+        - gpt-oss
       llm_model:
         description: 'LLM model'
         required: false
-        default: 'gpt-4o-mini'
+        default: 'gpt-4o'
       dry_run:
-        description: 'Dry run mode (no PR creation)'
+        description: 'Dry run mode (no changes made)'
         required: false
         type: boolean
-        default: false
+        default: false      
 
 jobs:
-  generate-content:
+  execute-task:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -43,20 +61,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout private hugoAgent repo
+      - name: Checkout Universal AI Assistant repo
         uses: actions/checkout@v4
         with:
-          repository: ${{ secrets.AGENT_REPO }}
-          token: ${{ secrets.AGENT_REPO_TOKEN }}
-          path: hugo-agent
+          repository: ${{ secrets.UAIA_REPO }}
+          token: ${{ secrets.UAIA_REPO_TOKEN }}
+          path: uaia
           fetch-depth: 0
 
-      - name: Checkout private Hugo site repo
+      - name: Checkout target repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ secrets.REPO }}
-          token: ${{ secrets.REPO_TOKEN }}
-          path: hugo-repo
+          repository: ${{ secrets.TARGET_REPO }}
+          token: ${{ secrets.TARGET_REPO_TOKEN }}
+          path: target-repo
           fetch-depth: 0
           submodules: recursive
 
@@ -68,12 +86,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r hugo-agent/requirements.txt
+          pip install -r uaia/requirements.txt
 
-      - name: Install Hugo
+      - name: Install Hugo (optional)
         run: |
           sudo apt-get update
           sudo apt-get install -y hugo
+        continue-on-error: true
 
       - name: Verify GitHub CLI
         run: |
@@ -81,12 +100,12 @@ jobs:
 
       - name: Configure Git Identity
         run: |
-          cd hugo-repo
-          git config user.name "Hugo Agent Bot"
-          git config user.email "hugoagent@familiarize.com"
+          cd target-repo
+          git config user.name "Universal AI Assistant"
+          git config user.email "uaia@familiarize.com"
           cd ..
 
-      - name: Run Hugo Agent
+      - name: Execute Universal AI Assistant
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
@@ -94,30 +113,84 @@ jobs:
           GPT_OSS_BASE_URL: ${{ secrets.GPT_OSS_BASE_URL }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           GOOGLE_CSE_API_KEY: ${{ secrets.GOOGLE_CSE_API_KEY }}
-          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
         run: |
           DRY_RUN_FLAG=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
+
+          if [ "${{ github.event.inputs.prompt_is_file }}" = "true" ]; then
+            if [ -f "../target-repo/${{ github.event.inputs.prompt }}" ]; then
+              PROMPT_CONTENT=$(cat "../target-repo/${{ github.event.inputs.prompt }}")
+            else
+              echo "Error: Prompt file '../target-repo/${{ github.event.inputs.prompt }}' does not exist."
+              exit 1
+            fi
+          else
+            PROMPT_CONTENT="${{ github.event.inputs.prompt }}"
+          fi
+
           python -m src.main \
-            --repo-path ../hugo-repo \
-            --prompt-file "${{ github.event.inputs.prompt_file }}" \
-            --country "${{ github.event.inputs.country }}" \
-            --num-pages "${{ github.event.inputs.num_pages }}" \
+            --repo-path ../target-repo \
+            --prompt "$PROMPT_CONTENT" \
+            --task-type "${{ github.event.inputs.task_type }}" \
             --llm-provider "${{ github.event.inputs.llm_provider }}" \
             --llm-model "${{ github.event.inputs.llm_model }}" \
             $DRY_RUN_FLAG
-        working-directory: hugo-agent
+        working-directory: uaia
 
-      - name: Upload artifacts
+      - name: Check for UAIA Updates
+        id: check_updates
+        run: |
+          cd uaia
+          if [ -f "generated_tools.json" ] || [ -f "new_servers.py" ]; then
+            echo "updates_needed=true" >> $GITHUB_OUTPUT
+            echo "UAIA generated new tools/servers during execution"
+          else
+            echo "updates_needed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update UAIA Repository (if needed)
+        if: steps.check_updates.outputs.updates_needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UAIA_REPO_TOKEN }}
+        run: |
+          cd uaia
+          
+          # Configure git for UAIA repo updates
+          git config user.name "Universal AI Assistant"
+          git config user.email "uaia@familiarize.com"
+          
+          # Add generated files
+          git add generated_tools.json new_servers.py 2>/dev/null || true
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No new tools/servers to commit"
+          else
+            # Commit and push updates
+            git commit -m "feat: Add dynamically generated tools and servers
+            
+            Generated during task execution:
+            - New MCP servers for task requirements
+            - Runtime-generated tools
+            - Auto-generated by Universal AI Assistant"
+            
+            git push origin main
+            echo "UAIA repository updated with new tools/servers"
+          fi
+
+      - name: Upload execution artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hugo-agent-run-${{ github.run_id }}
+          name: uaia-execution-${{ github.run_id }}
           path: |
-            hugo-repo/agent-run-*.log
-            hugo-repo/.hugo_build.log
+            target-repo/uaia-run-*.log
+            target-repo/.execution_report.json
+            uaia/generated_tools.json
+            uaia/new_servers.py
           if-no-files-found: ignore
           retention-days: 30
