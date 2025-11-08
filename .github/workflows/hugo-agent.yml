@@ -3,16 +3,16 @@ name: Universal AI Assistant
 on:
   workflow_dispatch:
     inputs:
+      prompt:
+        description: 'Prompt content or path to a prompt file in the target repository'
+        required: true
+        default: 'country-pages-prompt.txt'
+        type: string
       prompt_is_file:
         description: 'Whether the prompt input is a file path (true) or direct content (false)'
         required: false
         type: boolean
         default: true
-      prompt:
-        description: 'Task description/prompt text or path to a prompt file in the target repository'
-        required: true
-        default: 'prompts/country-pages-prompt.txt'
-        type: string
       target_repo:
         description: 'Target repository to operate on (ORG/REPO format)'
         required: true
