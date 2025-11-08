@@ -11,6 +11,7 @@ on:
       prompt:
         description: 'Task description/prompt text or path to a prompt file in the target repository'
         required: true
+        default: 'prompts/country-pages-prompt.txt'
         type: string
       target_repo:
         description: 'Target repository to operate on (ORG/REPO format)'
