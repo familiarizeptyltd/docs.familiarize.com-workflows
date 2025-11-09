@@ -77,12 +77,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r uaia/requirements.txt
 
-      - name: Install Hugo (optional)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y hugo
-        continue-on-error: true
-
       - name: Verify GitHub CLI
         run: |
           gh --version
