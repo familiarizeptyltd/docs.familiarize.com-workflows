@@ -1,4 +1,4 @@
-name: Universal AI Assistant
+name: Hugo Assistant
 
 on:
   workflow_dispatch:
