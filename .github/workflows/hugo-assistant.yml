@@ -11,8 +11,11 @@ on:
       prompt_is_file:
         description: 'Whether the prompt input is a file path (true) or direct content (false)'
         required: false
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+        default: 'true'
       target_repo:
         description: 'Target repository to operate on (ORG/REPO format)'
         required: true
@@ -34,8 +37,11 @@ on:
       dry_run:
         description: 'Dry run mode (no changes made)'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+        default: 'false'
       branch:
         description: 'Branch in target repo to create/switch'
         required: false
@@ -43,18 +49,27 @@ on:
       commit_synth_assets:
         description: 'Commit/push synthesized tools/servers to assistant repo'
         required: false
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+        default: 'true'
       prefer_unidiff:
         description: 'Prefer Python unidiff applier over git apply'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+        default: 'false'
       no_fuzzy_unidiff:
         description: 'Disable fuzzy matching in unidiff fallback (strict only)'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+        default: 'false'
       synth_servers_dir:
         description: 'Directory to write synthesized MCP servers (optional)'
         required: false
