@@ -13,11 +13,6 @@ on:
         required: false
         type: boolean
         default: true
-      target_repo:
-        description: 'Target repository to operate on (ORG/REPO format)'
-        required: true
-        default: 'familiarize/docs.familiarize.com'
-        type: string
       llm_provider:
         description: 'LLM provider (openai/grok/gpt-oss)'
         required: false
