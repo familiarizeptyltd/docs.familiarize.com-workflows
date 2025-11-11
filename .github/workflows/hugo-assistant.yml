@@ -202,7 +202,7 @@ jobs:
           fi
 
           # Run the assistant using assistant/ua.yml config
-          ua run \
+          python -m universal_assistant.cli run \
             --target "${{ github.workspace }}/target-repo" \
             "${PROMPT_FLAG[@]}" \
             --model "${MODEL_SPEC}" \
