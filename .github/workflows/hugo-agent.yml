@@ -117,7 +117,7 @@ jobs:
           fi
 
           python -m src.main \
-            --repo-path target-repo \
+            --repo-path ../target-repo \
             --prompt "$PROMPT_CONTENT" \
             --llm-provider "${{ github.event.inputs.llm_provider }}" \
             --llm-model "${{ github.event.inputs.llm_model }}" \
