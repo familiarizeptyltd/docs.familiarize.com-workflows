@@ -70,14 +70,6 @@ on:
           - 'true'
           - 'false'
         default: 'false'
-      synth_servers_dir:
-        description: 'Directory to write synthesized MCP servers (optional)'
-        required: false
-        default: ''
-      synth_tools_dir:
-        description: 'Directory to write synthesized in-process tools (optional)'
-        required: false
-        default: ''
 
 jobs:
   execute-task:
