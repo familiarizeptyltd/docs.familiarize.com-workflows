@@ -73,7 +73,7 @@ jobs:
             "provider": "default",
             "providers": [              
               {
-                "id": "default1",
+                "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "openai/gpt-4o-mini",
