@@ -71,14 +71,7 @@ jobs:
             "mode": "code",
             "telemetry": true,
             "provider": "default",
-            "providers": [
-              {
-                "id": "default1",
-                "provider": "kilocode",
-                "kilocodeToken": "${KILOCODE_TOKEN}",
-                "kilocodeModel": "openai/gpt-4o-mini",
-                "kilocodeOrganizationId": ""
-              },
+            "providers": [              
               {
               	"id": "default",
               	"provider": "openai-native",
