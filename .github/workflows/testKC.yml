@@ -35,8 +35,8 @@ jobs:
     env:
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
       OPENAI_COMPAT_TOKEN: ${{ secrets.OPENAI_COMPAT_API_KEY }}
-      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
       OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
+      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}      
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
 
     steps:
@@ -74,10 +74,10 @@ jobs:
             "providers": [              
               {
                 "id": "default",
-                "provider": "kilocode",
-                "kilocodeToken": "${KILOCODE_TOKEN}",
-                "kilocodeModel": "openai/gpt-4o-mini",
-                "kilocodeOrganizationId": ""
+                "provider": "openai",
+                "openAiApiKey": "${OPENAI_COMPAT_TOKEN}",
+                "apiModelId": "${OPENAI_COMPAT_MODEL}",
+                "openAiBaseUrl": "${OPENAI_COMPAT_BASE_URL}"
               }              
             ],
             "autoApproval": {
