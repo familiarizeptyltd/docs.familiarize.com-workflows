@@ -6,7 +6,7 @@ on:
       prompt_path:
         description: "Path to the prompt file inside the target repository"
         required: true
-        default: "prompts/country-pages-prompt2.txt"
+        default: "prompts/country-pages-prompt1.txt"
         type: string
 
       target_repo:
@@ -85,7 +85,7 @@ jobs:
                 "allowed": ["git", "npm", "pnpm"],
                 "denied": ["rm -rf", "sudo"]
               },
-              "browser": { "enabled": true },
+              "browser": { "enabled": false },
               "mcp": { "enabled": true },
               "mode": { "enabled": true },
               "subtasks": { "enabled": true },
