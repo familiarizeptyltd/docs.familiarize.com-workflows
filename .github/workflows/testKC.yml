@@ -74,10 +74,10 @@ jobs:
             "providers": [              
               {
                 "id": "default",
-                "provider": "openai",
-                "openAiApiKey": "${OPENAI_COMPAT_TOKEN}",
-                "apiModelId": "${OPENAI_COMPAT_MODEL}",
-                "openAiBaseUrl": "${OPENAI_COMPAT_BASE_URL}"
+                "provider": "kilocode",
+                "kilocodeToken": "${KILOCODE_TOKEN}",
+                "kilocodeModel": "openai/gpt-4o-mini",
+                "kilocodeOrganizationId": ""
               }              
             ],
             "autoApproval": {
