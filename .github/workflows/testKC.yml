@@ -70,10 +70,10 @@ jobs:
             "version": "1.0.0",
             "mode": "code",
             "telemetry": true,
-            "provider": "default",
+            "provider": "kc",
             "providers": [              
               {
-                "id": "default",
+                "id": "kc",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "openai/gpt-4o-mini",
