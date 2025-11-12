@@ -7,7 +7,7 @@ on:
       prompt_path:
         description: "Path to the prompt file inside the target repository"
         required: true
-        default: "prompts/country-pages-prompt.txt"
+        default: "prompts/uae-pages1.md"
         type: string
 
       target_repo:
@@ -73,11 +73,11 @@ jobs:
             "provider": "default",
             "providers": [              
               {
-              	"id": "default",
-              	"provider": "openai-native",
-              	"openAiNativeApiKey": "${OPENAI_COMPAT_TOKEN}",
-              	"apiModelId": "${OPENAI_COMPAT_MODEL}",
-              	"openAiNativeBaseUrl": "${OPENAI_COMPAT_BASE_URL}"
+                "id": "default1",
+                "provider": "kilocode",
+                "kilocodeToken": "${KILOCODE_TOKEN}",
+                "kilocodeModel": "openai/gpt-4o-mini",
+                "kilocodeOrganizationId": ""
               }              
             ],
             "autoApproval": {
