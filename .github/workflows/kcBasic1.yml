@@ -1,4 +1,4 @@
-name: KC-Basic (Kilocode-Provider)
+name: KC-Basic (Custom-Provider)
 
 on:
   workflow_dispatch:  
@@ -72,7 +72,3 @@ jobs:
         run: |
           set -euxo pipefail
           kilocode --auto --timeout 600 "Browse https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ and share a brief summary about the release."
-
-               --base main \
-            --head "$(git rev-parse --abbrev-ref HEAD)" \
-            --repo "${{ inputs.target_repo }}"
