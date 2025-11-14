@@ -71,4 +71,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --auto --timeout 600 --no-sandbox "Browse https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ and share a brief summary about the release."
+          kilocode --auto --timeout 600 "Create a script to check contents of https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ without using browser and share a brief summary about the release."
