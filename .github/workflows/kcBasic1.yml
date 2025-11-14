@@ -1,4 +1,4 @@
-name: KC-Basic
+name: KC-Basic (Kilocode-Provider)
 
 on:
   workflow_dispatch:  
