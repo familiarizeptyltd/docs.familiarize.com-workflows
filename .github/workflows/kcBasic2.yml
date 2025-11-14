@@ -1,0 +1,74 @@
+name: KC-Basic (Kilocode-Provider)
+
+on:
+  workflow_dispatch:  
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+
+    env:
+      KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
+      OPENAI_COMPAT_TOKEN: ${{ secrets.OPENAI_COMPAT_API_KEY }}
+      OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
+      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}      
+      REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
+
+    steps:
+      - name: Basics
+        run: |
+          set -euxo pipefail
+          node -v
+          npm -v
+
+      - name: Install KiloCode CLI
+        run: |
+          set -euxo pipefail
+          npm install -g @kilocode/cli
+          kilocode --version || true
+
+      - name: Configure KiloCode (non-interactive; enable writes)
+        run: |
+          set -euxo pipefail
+          mkdir -p ~/.kilocode/cli
+          cat <<'EOF' > ~/.kilocode/cli/config.json
+          {
+            "version": "1.0.0",
+            "mode": "code",
+            "telemetry": true,
+            "provider": "default",
+            "providers": [              
+              {
+                "id": "default",
+                "provider": "kilocode",
+                "kilocodeToken": "${KILOCODE_TOKEN}",
+                "kilocodeModel": "openai/gpt-4o-mini",
+                "kilocodeOrganizationId": ""
+              }              
+            ],
+            "autoApproval": {
+              "enabled": true,
+              "read": { "enabled": true, "outside": true },
+              "write": { "enabled": true, "outside": true, "protected": false },
+              "execute": {
+                "enabled": true,
+                "allowed": ["git", "npm", "pnpm"],
+                "denied": ["rm -rf", "sudo"]
+              },
+              "browser": { "enabled": true },
+              "mcp": { "enabled": true },
+              "mode": { "enabled": true },
+              "subtasks": { "enabled": true },
+              "question": { "enabled": false, "timeout": 60 },
+              "retry": { "enabled": true, "delay": 10 },
+              "todo": { "enabled": true }
+            },
+            "theme": "dark",
+            "customThemes": {}
+          }
+          EOF
+
+      - name: Run KiloCode in auto mode
+        run: |
+          set -euxo pipefail
+          kilocode --auto --timeout 600 "Browse https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ and share a brief summary about the release."
