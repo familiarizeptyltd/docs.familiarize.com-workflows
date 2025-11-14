@@ -40,7 +40,7 @@ jobs:
             "providers": [              
               {
                 "id": "default",
-                "provider": "openai-native",
+                "provider": "openai",
                 "openAiApiKey": "${OPENAI_COMPAT_TOKEN}",
                 "apiModelId": "${OPENAI_COMPAT_MODEL}",
                 "openAiBaseUrl": "${OPENAI_COMPAT_BASE_URL}"
