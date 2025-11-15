@@ -1,4 +1,4 @@
-name: Universal AI Assistant
+name: UAIA
 
 on:
   workflow_dispatch:
