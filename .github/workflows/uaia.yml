@@ -19,14 +19,14 @@ on:
         default: 'familiarize/docs.familiarize.com'
         type: string
       llm_provider:
-        description: 'LLM provider (openai/grok/gpt-oss)'
+        description: 'LLM provider (openai/grok/professionalize)'
         required: false
         default: 'openai'
         type: choice
         options:
         - openai
         - grok
-        - gpt-oss
+        - professionalize
       llm_model:
         description: 'LLM model'
         required: false
