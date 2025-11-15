@@ -21,7 +21,7 @@ on:
       llm_provider:
         description: 'LLM provider (openai/grok/professionalize)'
         required: false
-        default: 'openai'
+        default: 'professionalize'
         type: choice
         options:
         - openai
@@ -30,7 +30,7 @@ on:
       llm_model:
         description: 'LLM model'
         required: false
-        default: 'gpt-4o-mini'
+        default: 'gpt-oss'
       dry_run:
         description: 'Dry run mode (no changes made)'
         required: false
