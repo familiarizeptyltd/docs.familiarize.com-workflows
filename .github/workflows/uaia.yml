@@ -76,18 +76,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r uaia/requirements.txt
-
       - name: Verify GitHub CLI
         run: |
           gh --version
-
       - name: Configure Git Identity
         run: |
           cd target-repo
           git config user.name "Universal AI Assistant"
           git config user.email "uaia@familiarize.com"
           cd ..
-
       - name: Execute Universal AI Assistant
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -104,7 +101,6 @@ jobs:
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
-
           if [ "${{ github.event.inputs.prompt_is_file }}" = "true" ]; then
             if [ -f "../target-repo/${{ github.event.inputs.prompt }}" ]; then
               PROMPT_CONTENT=$(cat "../target-repo/${{ github.event.inputs.prompt }}")
@@ -115,7 +111,6 @@ jobs:
           else
             PROMPT_CONTENT="${{ github.event.inputs.prompt }}"
           fi
-
           python -m src.main \
             --repo-path ../target-repo \
             --prompt "$PROMPT_CONTENT" \
@@ -134,7 +129,6 @@ jobs:
           else
             echo "updates_needed=false" >> $GITHUB_OUTPUT
           fi
-
       - name: Update UAIA Repository (if needed)
         if: steps.check_updates.outputs.updates_needed == 'true'
         env:
@@ -164,7 +158,63 @@ jobs:
             git push origin main
             echo "UAIA repository updated with new tools/servers"
           fi
-
+      - name: Create and upload PR changes ZIP
+        run: |
+          cd target-repo
+          
+          # Check if there are any changes to commit
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes detected in target repository"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in target repository"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            
+            # Create a temporary directory for the ZIP contents
+            mkdir -p ../pr-changes-temp
+            
+            # Get list of changed files (both staged and unstaged)
+            git diff --name-only > ../pr-changes-temp/changed_files.txt
+            git diff --cached --name-only >> ../pr-changes-temp/changed_files.txt
+            
+            # Add new untracked files that might be relevant
+            git ls-files --others --exclude-standard >> ../pr-changes-temp/untracked_files.txt
+            
+            # Copy changed files to temporary directory
+            while IFS= read -r file; do
+              if [ -f "$file" ]; then
+                mkdir -p "../pr-changes-temp/$(dirname "$file")"
+                cp "$file" "../pr-changes-temp/$file"
+              fi
+            done < ../pr-changes-temp/changed_files.txt
+            
+            # Copy relevant untracked files (avoiding large binary files)
+            while IFS= read -r file; do
+              if [ -f "$file" ] && [ $(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0) -lt 10485760 ]; then
+                mkdir -p "../pr-changes-temp/$(dirname "$file")"
+                cp "$file" "../pr-changes-temp/$file"
+              fi
+            done < ../pr-changes-temp/untracked_files.txt
+            
+            # Create ZIP file
+            cd ../pr-changes-temp
+            zip -r "../target-repo-pr-changes-${{ github.run_id }}.zip" .
+            cd ../target-repo
+            
+            # Clean up temporary directory
+            rm -rf ../pr-changes-temp
+            
+            echo "ZIP file created: target-repo-pr-changes-${{ github.run_id }}.zip"
+          fi
+        id: check_pr_changes
+      - name: Upload PR changes ZIP artifact
+        if: steps.check_pr_changes.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-changes-${{ github.run_id }}
+          path: target-repo-pr-changes-${{ github.run_id }}.zip
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Upload execution artifacts
         if: always()
         uses: actions/upload-artifact@v4
