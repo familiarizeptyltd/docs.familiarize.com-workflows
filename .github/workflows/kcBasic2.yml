@@ -15,7 +15,7 @@ jobs:
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
       # MODEL: openai/gpt-4o-mini
       # MODEL: x-ai/grok-code-fast-1
-      MODEL: minimax/minimax-m2:free
+      # MODEL: minimax/minimax-m2:free
 
     steps:
       - name: Basics
@@ -45,7 +45,7 @@ jobs:
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
-                "kilocodeModel": "${MODEL}",
+                "kilocodeModel": "minimax/minimax-m2:free",
                 "kilocodeOrganizationId": ""
               }              
             ],
