@@ -38,6 +38,9 @@ jobs:
       OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
       OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}      
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
+      # MODEL: openai/gpt-4o-mini
+      # MODEL: x-ai/grok-code-fast-1
+      # MODEL: minimax/minimax-m2:free
 
     steps:
       - name: Checkout Target repository
@@ -76,7 +79,7 @@ jobs:
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
-                "kilocodeModel": "openai/gpt-4o-mini",
+                "kilocodeModel": "minimax/minimax-m2:free",
                 "kilocodeOrganizationId": ""
               }              
             ],
