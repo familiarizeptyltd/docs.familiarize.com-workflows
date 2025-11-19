@@ -7,7 +7,7 @@ on:
       prompt_path:
         description: "Path to the prompt file inside the target repository"
         required: true
-        default: "prompts/uae-pages1.md"
+        default: "prompts/country-pages.md"
         type: string
 
       target_repo:
@@ -108,7 +108,7 @@ jobs:
       - name: Run KiloCode in auto mode (Target workspace)
         run: |
           set -euxo pipefail
-          kilocode --auto --workspace ./target_repo --timeout 600 < "target_repo/${{ inputs.prompt_path }}"
+          kilocode --auto --workspace ./target_repo --timeout 1200 < "target_repo/${{ inputs.prompt_path }}"
 
       # --- Direct commit path ---
       - name: Commit & Push changes to Target (direct to main)
