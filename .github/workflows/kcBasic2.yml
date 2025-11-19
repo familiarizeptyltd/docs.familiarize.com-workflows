@@ -13,6 +13,9 @@ jobs:
       OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
       OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}      
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
+      # MODEL: "openai/gpt-4o-mini"
+      # MODEL: "x-ai/grok-code-fast-1"
+      MODEL: "minimax/minimax-m2:free"
 
     steps:
       - name: Basics
@@ -42,7 +45,7 @@ jobs:
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
-                "kilocodeModel": "openai/gpt-4o-mini",
+                "kilocodeModel": "${MODEL}",
                 "kilocodeOrganizationId": ""
               }              
             ],
@@ -71,4 +74,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --auto --timeout 600 "Create a script to check contents of https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ without using browser and share a brief summary about the release."
+          kilocode --auto --timeout 600 "Check contents of https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ without using browser and share a brief summary about the release."
