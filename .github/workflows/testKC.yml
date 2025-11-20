@@ -60,6 +60,12 @@ jobs:
           node -v
           npm -v
 
+      - name: Install MCP server dependencies (Python)
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
+          pip install -r mcp/requirements.txt
+
       - name: Install KiloCode CLI
         run: |
           set -euxo pipefail
