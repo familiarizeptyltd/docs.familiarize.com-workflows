@@ -63,6 +63,7 @@ jobs:
       - name: Install MCP server dependencies (Python)
         run: |
           set -euxo pipefail
+          cd target_repo
           python -m pip install --upgrade pip
           pip install -r mcp/requirements.txt
 
