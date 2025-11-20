@@ -73,7 +73,7 @@ jobs:
           npm install -g @kilocode/cli
           kilocode --version || true
 
-      - name: Configure KiloCode (non-interactive; enable writes)
+      - name: Configure KiloCode (non-interactive; enable writes + MCP)
         run: |
           set -euxo pipefail
           mkdir -p ~/.kilocode/cli
@@ -98,7 +98,7 @@ jobs:
               "write": { "enabled": true, "outside": true, "protected": false },
               "execute": {
                 "enabled": true,
-                "allowed": ["git", "npm", "pnpm"],
+                "allowed": ["git", "npm", "pnpm", "python"],
                 "denied": ["rm -rf", "sudo"]
               },
               "browser": { "enabled": true },
@@ -111,6 +111,20 @@ jobs:
             },
             "theme": "dark",
             "customThemes": {}
+          }
+          EOF
+
+          # MCP servers config – this is what the CLI will read
+          cat <<'EOF' > ~/.kilocode/cli/mcp.json
+          {
+            "mcpServers": {
+              "web_search": {
+                "command": "python",
+                "args": ["mcp/web_search.py"],
+                "disabled": false,
+                "timeout": 600000
+              }
+            }
           }
           EOF
 
