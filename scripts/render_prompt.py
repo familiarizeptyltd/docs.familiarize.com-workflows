@@ -1,34 +1,43 @@
 #!/usr/bin/env python3
-import argparse, json, os, sys, pathlib, datetime, re
+import argparse, json, os, sys, pathlib, re
 
 def render(template: str, ctx: dict) -> str:
-    out = template
-    for k, v in ctx.items():
-        out = out.replace(f"{{{{{k}}}}}", v)
-    # collapse any accidental double spaces left by replacements
+    # Replace tokens like {{KEY}} or {{ KEY }} with ctx values; leave unknowns intact
+    def sub_key(m):
+        key = m.group(1).strip()
+        return ctx.get(key, m.group(0))
+    out = re.sub(r"\{\{\s*([A-Z0-9_]+)\s*\}\}", sub_key, template)
+    # Normalize stray multiple spaces
     out = re.sub(r"[ \t]+", " ", out)
     return out
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--profiles", required=True, help="Path to country-profiles.json")
+    ap.add_argument("--profiles", required=True, help="Path to country-profiles.json (or legacy name)")
     ap.add_argument("--profile-key", required=True, help="Key in JSON, e.g., UAE, SG, UK")
     ap.add_argument("--template", required=True, help="Path to prompt template .md")
     ap.add_argument("--output", required=True, help="Output path for rendered prompt .md (inside docs_repo)")
     args = ap.parse_args()
 
-    profiles = json.loads(pathlib.Path(args.profiles).read_text(encoding="utf-8"))
-    if args.profile_key not in profiles:
-        print(f"Profile '{args.profile_key}' not found. Available: {', '.join(sorted(profiles.keys()))}", file=sys.stderr)
-        sys.exit(2)
+    profiles_text = pathlib.Path(args.profiles).read_text(encoding="utf-8")
+    profiles = json.loads(profiles_text)
 
-    p = profiles[args.profile_key]
+    key = args.profile_key
+    if key not in profiles:
+        # Try case-insensitive match
+        alt = {k.lower(): k for k in profiles.keys()}
+        if key.lower() in alt:
+            key = alt[key.lower()]
+        else:
+            raise SystemExit(f"Profile '{args.profile_key}' not found. Available: {', '.join(sorted(profiles.keys()))}")
+
+    p = profiles[key]
     regs_csv = ", ".join(p.get("regulators", []))
 
     folders = p.get("folders", {})
-    f_family = folders.get("family_office", "family-office/{code}/").replace("{code}", p["country_code"])
-    f_risk   = folders.get("risk_management", "risk-management/{code}/").replace("{code}", p["country_code"])
-    f_wealth = folders.get("wealth_management", "wealth-management/{code}/").replace("{code}", p["country_code"])
+    f_family = folders.get("family_office", f"family-office/{p['country_code']}/")
+    f_risk   = folders.get("risk_management", f"risk-management/{p['country_code']}/")
+    f_wealth = folders.get("wealth_management", f"wealth-management/{p['country_code']}/")
 
     ctx = {
         "COUNTRY_NAME": p["country_name"],

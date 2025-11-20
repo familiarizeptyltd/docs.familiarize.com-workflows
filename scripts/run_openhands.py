@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, os, sys, subprocess, pathlib
+import argparse, os, sys, subprocess, pathlib, shutil
 
 def main():
     ap = argparse.ArgumentParser()
@@ -16,7 +16,7 @@ def main():
 
     env = os.environ.copy()
 
-    # Map provider to env expected by your OpenHands build
+    # Map provider env expected by your OpenHands build
     if args.llm_provider == "openai":
         # expects OPENAI_API_KEY in env
         env["OPENAI_MODEL"] = args.llm_model
@@ -32,14 +32,18 @@ def main():
 
     goal_text = pathlib.Path(args.prompt_path).read_text(encoding="utf-8")
 
-    # If your OpenHands exposes a Python API, switch to it here.
-    # Using CLI for wide compatibility:
-    cmd = [
-        "openhands", "run",
-        "--repo", args.repo_path,
-        "--goal", goal_text,
-        "--logs", args.logs,
-    ]
+    # Prefer CLI if available; otherwise try module invocation
+    if shutil.which("openhands"):
+        cmd = ["openhands", "run",
+               "--repo", args.repo_path,
+               "--goal", goal_text,
+               "--logs", args.logs]
+    else:
+        cmd = [sys.executable, "-m", "openhands",
+               "run",
+               "--repo", args.repo_path,
+               "--goal", goal_text,
+               "--logs", args.logs]
 
     print("Running:", " ".join(cmd), flush=True)
     rc = subprocess.call(cmd, env=env)

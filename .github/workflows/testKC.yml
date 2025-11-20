@@ -41,6 +41,8 @@ jobs:
       # MODEL: openai/gpt-4o-mini
       # MODEL: x-ai/grok-code-fast-1
       # MODEL: minimax/minimax-m2:free
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_CSE_API_KEY }}
+      GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ENGINE_ID }}
 
     steps:
       - name: Checkout Target repository
