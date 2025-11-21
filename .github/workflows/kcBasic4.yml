@@ -40,7 +40,7 @@ jobs:
             "providers": [              
               {
                 "id": "default",
-                "provider": ""litellm",
+                "provider": "litellm",
                 "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
                 "litellmModelId": "gpt-oss",
                 "litellmBaseUrl": "${LLM_BASE_URL}",
