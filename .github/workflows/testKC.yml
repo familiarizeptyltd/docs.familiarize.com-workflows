@@ -6,7 +6,7 @@ on:
       prompt_path:
         description: "Path to the prompt file inside the target repository"
         required: true
-        default: "prompts/country-pages.md"
+        default: "prompts/switzerland-pages.md"
         type: string
 
       target_repo:
