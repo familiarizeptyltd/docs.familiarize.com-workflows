@@ -11,7 +11,7 @@ jobs:
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
       OPENAI_COMPAT_TOKEN: ${{ secrets.OPENAI_COMPAT_API_KEY }}
       OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
-      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}      
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
 
     steps:
@@ -43,7 +43,7 @@ jobs:
                 "provider": ""litellm",
                 "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
                 "litellmModelId": "gpt-oss",
-                "litellmBaseUrl": "${LLM_BASE_URL}"
+                "litellmBaseUrl": "${LLM_BASE_URL}",
                 "litellmUsePromptCache": true
               }              
             ],
