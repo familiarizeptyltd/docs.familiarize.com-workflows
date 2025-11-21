@@ -87,7 +87,7 @@ jobs:
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
-                "kilocodeModel": "x-ai/grok-code-fast-1",
+                "kilocodeModel": "minimax/minimax-m2:free",
                 "kilocodeOrganizationId": ""
               }
             ],
