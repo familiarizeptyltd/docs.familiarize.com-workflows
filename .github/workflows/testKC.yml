@@ -66,7 +66,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r mcp/requirements.txt
 
-
       - name: Install KiloCode CLI
         run: |
           set -euxo pipefail
