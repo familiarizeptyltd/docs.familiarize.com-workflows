@@ -1,4 +1,3 @@
-
 name: KiloCode - headless demo (Target)
 
 on:
@@ -36,7 +35,7 @@ jobs:
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
       OPENAI_COMPAT_TOKEN: ${{ secrets.OPENAI_COMPAT_API_KEY }}
       OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
-      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}      
+      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
       # MODEL: openai/gpt-4o-mini
       # MODEL: x-ai/grok-code-fast-1
@@ -83,14 +82,14 @@ jobs:
             "mode": "code",
             "telemetry": true,
             "provider": "default",
-            "providers": [              
+            "providers": [
               {
                 "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "x-ai/grok-code-fast-1",
                 "kilocodeOrganizationId": ""
-              }              
+              }
             ],
             "autoApproval": {
               "enabled": true,
@@ -129,16 +128,25 @@ jobs:
           EOF
 
       - name: Run KiloCode in auto mode (Target workspace)
+        working-directory: target_repo
         run: |
           set -euxo pipefail
-          kilocode --auto --workspace ./target_repo --timeout 1200 < "target_repo/${{ inputs.prompt_path }}"
+          # Workspace is the repo root (.)
+          kilocode --auto --workspace . --timeout 1200 < "${{ inputs.prompt_path }}"
+
+      - name: Show git status and diff (debug)
+        working-directory: target_repo
+        run: |
+          set -euxo pipefail
+          git status
+          git diff --stat || true
 
       # --- Direct commit path ---
       - name: Commit & Push changes to Target (direct to main)
         if: ${{ inputs.commit_mode == 'direct' }}
+        working-directory: target_repo
         run: |
           set -euxo pipefail
-          cd target_repo
           git config user.name "My agent"
           git config user.email "my.agent@github.com"
           git fetch origin
@@ -152,9 +160,9 @@ jobs:
         if: ${{ inputs.commit_mode == 'pr' }}
         env:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
+        working-directory: target_repo
         run: |
           set -euxo pipefail
-          cd target_repo
           git config user.name "My agent"
           git config user.email "my.agent@github.com"
           git fetch origin
