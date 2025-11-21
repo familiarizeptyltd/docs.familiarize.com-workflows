@@ -132,7 +132,7 @@ jobs:
         run: |
           set -euxo pipefail
           # Workspace is the repo root (.)
-          kilocode --auto --workspace . --timeout 1200 < "${{ inputs.prompt_path }}"
+          kilocode --auto --workspace . --timeout 1800 < "${{ inputs.prompt_path }}"
 
       - name: Show git status and diff (debug)
         working-directory: target_repo
