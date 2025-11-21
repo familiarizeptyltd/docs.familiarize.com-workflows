@@ -42,8 +42,9 @@ jobs:
                 "id": "default",
                 "provider": "openai-native",
                 "openAiNativeApiKey": "${OPENAI_COMPAT_TOKEN}",
-                "apiModelId": "${OPENAI_COMPAT_MODEL}",
+                "apiModelId": "gpt-oss",
                 "openAiNativeBaseUrl": "${OPENAI_COMPAT_BASE_URL}"
+                "openAiNativeServiceTier": "auto"
               }              
             ],
             "autoApproval": {
