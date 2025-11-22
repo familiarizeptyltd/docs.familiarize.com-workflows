@@ -42,8 +42,8 @@ jobs:
                 "id": "default",
                 "provider": "openai",
                 "openAiApiKey": "${OPENAI_COMPAT_TOKEN}",
-                "apiModelId": "${OPENAI_COMPAT_MODEL}",
-                "openAiBaseUrl": "${OPENAI_COMPAT_BASE_URL}"
+                "apiModelId": "gpt-oss",
+                "openAiBaseUrl": "https://llm.professionalize.com/v1"
               }              
             ],
             "autoApproval": {
