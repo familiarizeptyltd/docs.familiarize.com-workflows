@@ -42,8 +42,8 @@ jobs:
                 "id": "default",
                 "provider": "litellm",
                 "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
-                "litellmModelId": "gpt-oss",
-                "litellmBaseUrl": "https://llm.professionalize.com",
+                "litellmModelId": "${OPENAI_COMPAT_MODEL}",
+                "litellmBaseUrl": "${LLM_BASE_URL}",
                 "litellmUsePromptCache": true
               }              
             ],
