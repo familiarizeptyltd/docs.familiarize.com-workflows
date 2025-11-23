@@ -98,4 +98,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --provider kilocode --auto --timeout 600 "Browse for latest financial news in the global market and share at least 5 top news briefly."
+          kilocode --provider default --auto --timeout 600 "Browse for latest financial news in the global market and share at least 5 top news briefly."
