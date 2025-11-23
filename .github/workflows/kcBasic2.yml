@@ -11,7 +11,8 @@ jobs:
       KILOCODE_TOKEN: ${{ secrets.KILOCODE_API_KEY }}
       OPENAI_COMPAT_TOKEN: ${{ secrets.OPENAI_COMPAT_API_KEY }}
       OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
-      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}      
+      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}     
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
       # MODEL: openai/gpt-4o-mini
       # MODEL: x-ai/grok-code-fast-1
@@ -47,7 +48,30 @@ jobs:
                 "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "minimax/minimax-m2:free",
                 "kilocodeOrganizationId": ""
-              }              
+              },
+              {
+                "id": "openai",
+                "provider": "openai",
+                "openAiApiKey": "${OPENAI_COMPAT_TOKEN}",
+                "apiModelId": "${OPENAI_COMPAT_MODEL}",
+                "openAiBaseUrl": "${OPENAI_COMPAT_BASE_URL}"
+              },
+              {
+                "id": "openainative",
+                "provider": "openai-native",
+                "openAiNativeApiKey": "${OPENAI_COMPAT_TOKEN}",
+                "apiModelId": "${OPENAI_COMPAT_MODEL}",
+                "openAiNativeBaseUrl": "${OPENAI_COMPAT_BASE_URL}",
+                "openAiNativeServiceTier": "auto"
+              },
+              {
+                "id": "litellm",
+                "provider": "litellm",
+                "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
+                "litellmModelId": "${OPENAI_COMPAT_MODEL}",
+                "litellmBaseUrl": "${LLM_BASE_URL}",
+                "litellmUsePromptCache": true
+              }
             ],
             "autoApproval": {
               "enabled": true,
@@ -74,4 +98,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --auto --timeout 600 "Browse for latest financial news in the global market and share at least 5 top news briefly."
+          kilocode --provider openai --model gpt-oss --auto --timeout 600 "Browse for latest financial news in the global market and share at least 5 top news briefly."
