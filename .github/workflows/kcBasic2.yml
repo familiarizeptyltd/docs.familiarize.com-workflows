@@ -79,7 +79,7 @@ jobs:
               "write": { "enabled": true, "outside": true, "protected": false },
               "execute": {
                 "enabled": true,
-                "allowed": ["git", "npm", "pnpm"],
+                "allowed": ["git", "npm", "pnpm", "python"],
                 "denied": ["rm -rf", "sudo"]
               },
               "browser": { "enabled": true },
@@ -98,4 +98,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --provider litellm --auto --timeout 300 "Browse for latest financial news in the global market and share at least 5 top news briefly."
+          kilocode --provider litellm --auto --timeout 150 "Browse for latest financial news in the global market and share at least 5 top news briefly."
