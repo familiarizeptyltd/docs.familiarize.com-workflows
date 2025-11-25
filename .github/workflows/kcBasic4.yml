@@ -36,11 +36,11 @@ jobs:
             "version": "1.0.0",
             "mode": "code",
             "telemetry": true,
-            "provider": "default",
+            "provider": "litellm",
             "providers": [              
               {
                 "id": "default",
-                "provider": "default",
+                "provider": "litellm",
                 "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
                 "litellmModelId": "${OPENAI_COMPAT_MODEL}",
                 "litellmBaseUrl": "${LLM_BASE_URL}",
@@ -72,4 +72,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --provider default --auto --timeout 150 "Who are you?"
+          kilocode --provider litellm --auto --timeout 150 "Who are you?"
