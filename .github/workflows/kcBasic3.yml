@@ -72,4 +72,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --provider litellm --auto --timeout 150 "Create a script to check contents of https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ without using browser and share a brief summary about the release."
+          kilocode --auto --timeout 150 "Create a script to check contents of https://releases.aspose.com/words/net/release-notes/2025/aspose-words-for-net-25-11-release-notes/ without using browser and share a brief summary about the release."
