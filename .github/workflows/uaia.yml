@@ -1,4 +1,4 @@
-name: UAIA
+name: UAIA (main)
 
 on:
   workflow_dispatch:
