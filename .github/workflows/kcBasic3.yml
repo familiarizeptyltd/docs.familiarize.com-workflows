@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p ~/.kilocode/cli
-          cat <<'EOF' > ~/.kilocode/cli/config.json
+          cat <<EOF > ~/.kilocode/cli/config.json
           {
             "version": "1.0.0",
             "mode": "code",
