@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p ~/.kilocode/cli
-          cat <<'EOF' > ~/.kilocode/cli/config.json
+          cat <<EOF > ~/.kilocode/cli/config.json
           {
             "version": "1.0.0",
             "mode": "code",
@@ -85,11 +85,19 @@ jobs:
             "providers": [
               {
                 "id": "default",
+                "provider": "litellm",
+                "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
+                "litellmModelId": "${OPENAI_COMPAT_MODEL}",
+                "litellmBaseUrl": "${LLM_BASE_URL}",
+                "litellmUsePromptCache": true
+              },
+              {
+                "id": "kilocode",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "minimax/minimax-m2:free",
                 "kilocodeOrganizationId": ""
-              }
+              }                
             ],
             "autoApproval": {
               "enabled": true,
@@ -114,7 +122,7 @@ jobs:
           EOF
 
           # MCP servers config – this is what the CLI will read
-          cat <<'EOF' > ~/.kilocode/cli/mcp.json
+          cat <<EOF > ~/.kilocode/cli/mcp.json
           {
             "mcpServers": {
               "web_search": {
