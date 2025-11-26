@@ -36,6 +36,7 @@ jobs:
       OPENAI_COMPAT_TOKEN: ${{ secrets.OPENAI_COMPAT_API_KEY }}
       OPENAI_COMPAT_MODEL: ${{ secrets.OPENAI_COMPAT_MODEL }}
       OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
       # MODEL: openai/gpt-4o-mini
       # MODEL: x-ai/grok-code-fast-1
