@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p ~/.kilocode/cli
-          cat <<'EOF' > ~/.kilocode/cli/config.json
+          cat <<EOF > ~/.kilocode/cli/config.json
           {
             "version": "1.0.0",
             "mode": "code",
@@ -43,7 +43,7 @@ jobs:
             "provider": "default",
             "providers": [              
               {
-                "id": "default",
+                "id": "kilocode",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "minimax/minimax-m2:free",
@@ -65,7 +65,7 @@ jobs:
                 "openAiNativeServiceTier": "auto"
               },
               {
-                "id": "litellm",
+                "id": "default",
                 "provider": "litellm",
                 "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
                 "litellmModelId": "gpt-oss",
@@ -98,4 +98,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --provider openainative --auto --timeout 150 "Browse for latest financial news in the global market and share at least 5 top news briefly."
+          kilocode --auto --timeout 150 "Search for latest financial news in the global market and share at least 5 top news briefly."
