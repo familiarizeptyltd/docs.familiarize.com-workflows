@@ -1,0 +1,184 @@
+name: UAIA (commit)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Prompt content or path to a prompt file in the target repository'
+        required: true
+        default: 'prompts/switzerland-pages.md'
+        type: string
+
+      prompt_is_file:
+        description: 'Whether the prompt input is a file path (true) or direct content (false)'
+        required: false
+        type: boolean
+        default: true
+
+      target_repo:
+        description: 'Target repository to operate on (ORG/REPO format)'
+        required: true
+        default: 'familiarize/docs.familiarize.com'
+        type: string
+
+      llm_provider:
+        description: 'LLM provider (openai/grok/professionalize)'
+        required: false
+        default: 'professionalize'
+        type: choice
+        options:
+          - openai
+          - grok
+          - professionalize
+
+      llm_model:
+        description: 'LLM model'
+        required: false
+        default: 'gpt-oss'
+
+      dry_run:
+        description: 'Dry run mode (no changes made)'
+        required: false
+        type: boolean
+        default: false
+
+      uaia_ref:
+        description: 'UAIA git ref (branch, tag, or commit SHA)'
+        required: false
+        type: string
+        default: 'main'     
+
+jobs:
+  execute-task:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout public workflow repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout Universal AI Assistant repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.AGENT_REPO }}
+          token: ${{ secrets.AGENT_REPO_TOKEN }}
+          path: uaia
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.uaia_ref }}
+
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.REPO }}
+          token: ${{ secrets.REPO_TOKEN }}
+          path: target-repo
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r uaia/requirements.txt
+
+      - name: Verify GitHub CLI
+        run: |
+          gh --version
+
+      - name: Configure Git Identity
+        run: |
+          cd target-repo
+          git config user.name "Universal AI Assistant"
+          git config user.email "uaia@familiarize.com"
+          cd ..
+
+      - name: Execute Universal AI Assistant
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GPT_OSS_API_KEY: ${{ secrets.GPT_OSS_API_KEY }}
+          GPT_OSS_BASE_URL: ${{ secrets.GPT_OSS_BASE_URL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          GOOGLE_CUSTOM_SEARCH_API_KEY: ${{ secrets.GOOGLE_CUSTOM_SEARCH_API_KEY }}
+          CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+
+          if [ "${{ github.event.inputs.prompt_is_file }}" = "true" ]; then
+            if [ -f "../target-repo/${{ github.event.inputs.prompt }}" ]; then
+              PROMPT_CONTENT=$(cat "../target-repo/${{ github.event.inputs.prompt }}")
+            else
+              echo "Error: Prompt file '../target-repo/${{ github.event.inputs.prompt }}' does not exist."
+              exit 1
+            fi
+          else
+            PROMPT_CONTENT="${{ github.event.inputs.prompt }}"
+          fi
+
+          python -m src.main \
+            --repo-path ../target-repo \
+            --prompt "$PROMPT_CONTENT" \
+            --llm-provider "${{ github.event.inputs.llm_provider }}" \
+            --llm-model "${{ github.event.inputs.llm_model }}" \
+            $DRY_RUN_FLAG
+        working-directory: uaia
+
+      - name: Check for UAIA Updates
+        id: check_updates
+        run: |
+          cd uaia
+          if [ -f "generated_tools.json" ] || [ -f "new_servers.py" ]; then
+            echo "updates_needed=true" >> $GITHUB_OUTPUT
+            echo "UAIA generated new tools/servers during execution"
+          else
+            echo "updates_needed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update UAIA Repository (if needed)
+        if: steps.check_updates.outputs.updates_needed == 'true' && github.event.inputs.uaia_ref == 'main'
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_REPO_TOKEN }}
+        run: |
+          cd uaia
+          git config user.name "Universal AI Assistant"
+          git config user.email "uaia@familiarize.com"
+          git add generated_tools.json new_servers.py 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "No new tools/servers to commit"
+          else
+            git commit -m "feat: Add dynamically generated tools and servers
+
+            Generated during task execution:
+            - New MCP servers for task requirements
+            - Runtime-generated tools
+            - Auto-generated by Universal AI Assistant"
+            git push origin main
+            echo "UAIA repository updated with new tools/servers"
+          fi
+
+      - name: Upload execution artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uaia-execution-${{ github.run_id }}
+          path: |
+            target-repo/uaia-run-*.log
+            target-repo/.execution_report.json
+            uaia/generated_tools.json
+            uaia/new_servers.py
+          if-no-files-found: ignore
+          retention-days: 30
