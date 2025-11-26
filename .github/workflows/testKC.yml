@@ -85,7 +85,7 @@ jobs:
             "provider": "default",
             "providers": [
               {
-                "id": "default",
+                "id": "kilocode",
                 "provider": "litellm",
                 "litellmApiKey": "${OPENAI_COMPAT_TOKEN}",
                 "litellmModelId": "${OPENAI_COMPAT_MODEL}",
@@ -93,7 +93,7 @@ jobs:
                 "litellmUsePromptCache": true
               },
               {
-                "id": "kilocode",
+                "id": "default",
                 "provider": "kilocode",
                 "kilocodeToken": "${KILOCODE_TOKEN}",
                 "kilocodeModel": "minimax/minimax-m2:free",
