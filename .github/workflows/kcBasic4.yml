@@ -72,4 +72,4 @@ jobs:
       - name: Run KiloCode in auto mode
         run: |
           set -euxo pipefail
-          kilocode --provider litellm --auto --timeout 150 "Who are you?"
+          kilocode --auto --timeout 150 "Who are you?"
