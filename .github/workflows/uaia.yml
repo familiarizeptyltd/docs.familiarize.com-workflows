@@ -117,7 +117,11 @@ jobs:
           fi
 
           
-          python test_simple_execution.py
+          export PYTHONPATH=$PWD/src
+          python - <<'PY'
+          from src.agent.tool_executor import execute_prompt
+          print(execute_prompt("../target-repo/${{ github.event.inputs.prompt }}", model="gpt-oss"))
+          PY
             $DRY_RUN_FLAG
         working-directory: uaia
 
