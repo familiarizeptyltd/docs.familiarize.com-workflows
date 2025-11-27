@@ -115,12 +115,17 @@ jobs:
           else
             PROMPT_CONTENT="${{ github.event.inputs.prompt }}"
           fi
-
           
           export PYTHONPATH=$PWD/src
           python - <<'PY'
           from src.agent.tool_executor import execute_prompt
-          print(execute_prompt("../target-repo/${{ github.event.inputs.prompt }}", model="gpt-oss"))
+          print(
+              execute_prompt(
+                  "../target-repo/${{ github.event.inputs.prompt }}",
+                  model="${{ github.event.inputs.llm_model }}",
+                  provider="${{ github.event.inputs.llm_provider }}"
+              )
+          )
           PY
             $DRY_RUN_FLAG
         working-directory: uaia
