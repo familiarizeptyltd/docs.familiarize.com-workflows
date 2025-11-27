@@ -116,11 +116,8 @@ jobs:
             PROMPT_CONTENT="${{ github.event.inputs.prompt }}"
           fi
 
-          python -m src.main \
-            --repo-path ../target-repo \
-            --prompt "$PROMPT_CONTENT" \
-            --llm-provider "${{ github.event.inputs.llm_provider }}" \
-            --llm-model "${{ github.event.inputs.llm_model }}" \
+          
+          python test_simple_execution.py
             $DRY_RUN_FLAG
         working-directory: uaia
 
