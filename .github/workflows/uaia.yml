@@ -116,12 +116,14 @@ jobs:
             PROMPT_CONTENT="${{ github.event.inputs.prompt }}"
           fi
           
+          export UAIA_TOOL_LOOP=1
           python -m src.main \
             --repo-path ../target-repo \
             --prompt "$PROMPT_CONTENT" \
             --llm-provider "${{ github.event.inputs.llm_provider }}" \
             --llm-model "${{ github.event.inputs.llm_model }}" \
             $DRY_RUN_FLAG
+
         working-directory: uaia
 
       - name: Check for UAIA Updates
