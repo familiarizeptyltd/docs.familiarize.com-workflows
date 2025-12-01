@@ -109,33 +109,41 @@ jobs:
         run: |
           set -e
           
+          # Get absolute workspace path
+          WORKSPACE_PATH="$(cd ../target-repo && pwd)"
+          echo "Workspace: $WORKSPACE_PATH"
+          
           # Build aiAgent command
           AIAGENT_CMD="python -m aiagent.cli.main run"
           
           # Handle prompt (file or direct content)
           if [ "${{ github.event.inputs.prompt_is_file }}" = "true" ]; then
-            PROMPT_FILE="../target-repo/${{ github.event.inputs.prompt }}"
+            # File prompt
+            PROMPT_FILE="$WORKSPACE_PATH/${{ github.event.inputs.prompt }}"
+            
+            # Verify file exists
             if [ ! -f "$PROMPT_FILE" ]; then
               echo "Error: Prompt file '$PROMPT_FILE' does not exist."
+              echo "Available files in prompts/:"
+              ls -la "$WORKSPACE_PATH/prompts/" || true
               exit 1
             fi
-            AIAGENT_CMD="$AIAGENT_CMD --file $PROMPT_FILE"
+            
+            echo "Prompt file: $PROMPT_FILE"
+            AIAGENT_CMD="$AIAGENT_CMD --file \"$PROMPT_FILE\""
           else
-            # Direct prompt content
+            # Direct content prompt
+            echo "Using direct prompt content"
             AIAGENT_CMD="$AIAGENT_CMD '${{ github.event.inputs.prompt }}'"
           fi
           
-          # Add other parameters
-          AIAGENT_CMD="$AIAGENT_CMD --workspace ../target-repo"
+          # Add common parameters
+          AIAGENT_CMD="$AIAGENT_CMD --workspace \"$WORKSPACE_PATH\""
           AIAGENT_CMD="$AIAGENT_CMD --auto"
           AIAGENT_CMD="$AIAGENT_CMD --mode orchestrator"
           AIAGENT_CMD="$AIAGENT_CMD --provider ${{ github.event.inputs.llm_provider }}"
           
-          # Add config if exists
-          if [ -f "config.yaml" ]; then
-            AIAGENT_CMD="$AIAGENT_CMD --config config.yaml"
-          fi
-          
+          # Execute
           echo "Executing: $AIAGENT_CMD"
           eval $AIAGENT_CMD
           
