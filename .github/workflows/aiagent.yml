@@ -96,6 +96,7 @@ jobs:
 
       - name: Execute aiAgent
         env:
+          PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           GPT_OSS_API_KEY: ${{ secrets.GPT_OSS_API_KEY }}
