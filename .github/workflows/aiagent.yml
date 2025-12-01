@@ -149,6 +149,22 @@ jobs:
           
         working-directory: aiagent
 
+      - name: Push changes to target repository
+        if: success()
+        run: |
+          cd target-repo
+          
+          # Check if there are any commits to push
+          if git log origin/main..HEAD --oneline | grep -q .; then
+            echo "Changes detected, pushing to remote..."
+            git push origin main
+            echo "✓ Changes pushed successfully"
+          else
+            echo "No changes to push"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+
       - name: Check for aiagent Updates
         id: check_updates
         run: |
