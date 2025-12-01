@@ -72,6 +72,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r aiagent/requirements.txt
 
+      - name: Setup aiAgent configuration
+        run: |
+          # Copy config if it exists in repo
+          if [ -f "aiagent/config.yaml" ]; then
+            mkdir -p /home/runner/.aiagent
+            cp aiagent/config.yaml /home/runner/.aiagent/config.yaml
+            echo "✓ Copied custom config.yaml"
+          else
+            echo "⚠ No custom config.yaml found, will use defaults"
+          fi
+
       - name: Verify GitHub CLI
         run: |
           gh --version
@@ -95,29 +106,38 @@ jobs:
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
-          DRY_RUN_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            DRY_RUN_FLAG="--dry-run"
-          fi
-
+          set -e
+          
+          # Build aiAgent command
+          AIAGENT_CMD="python -m aiagent.cli.main run"
+          
+          # Handle prompt (file or direct content)
           if [ "${{ github.event.inputs.prompt_is_file }}" = "true" ]; then
-            if [ -f "../target-repo/${{ github.event.inputs.prompt }}" ]; then
-              PROMPT_CONTENT=$(cat "../target-repo/${{ github.event.inputs.prompt }}")
-            else
-              echo "Error: Prompt file '../target-repo/${{ github.event.inputs.prompt }}' does not exist."
+            PROMPT_FILE="../target-repo/${{ github.event.inputs.prompt }}"
+            if [ ! -f "$PROMPT_FILE" ]; then
+              echo "Error: Prompt file '$PROMPT_FILE' does not exist."
               exit 1
             fi
+            AIAGENT_CMD="$AIAGENT_CMD --file $PROMPT_FILE"
           else
-            PROMPT_CONTENT="${{ github.event.inputs.prompt }}"
-          fi          
+            # Direct prompt content
+            AIAGENT_CMD="$AIAGENT_CMD '${{ github.event.inputs.prompt }}'"
+          fi
           
-          python -m aiagent.cli.main run \
-            --workspace ../target-repo \
-            --file ../target-repo/${{ github.event.inputs.prompt }} \
-            --auto \
-            --mode orchestrator \
-            --provider ${{ github.event.inputs.llm_provider }}        
-
+          # Add other parameters
+          AIAGENT_CMD="$AIAGENT_CMD --workspace ../target-repo"
+          AIAGENT_CMD="$AIAGENT_CMD --auto"
+          AIAGENT_CMD="$AIAGENT_CMD --mode orchestrator"
+          AIAGENT_CMD="$AIAGENT_CMD --provider ${{ github.event.inputs.llm_provider }}"
+          
+          # Add config if exists
+          if [ -f "config.yaml" ]; then
+            AIAGENT_CMD="$AIAGENT_CMD --config config.yaml"
+          fi
+          
+          echo "Executing: $AIAGENT_CMD"
+          eval $AIAGENT_CMD
+          
         working-directory: aiagent
 
       - name: Check for aiagent Updates
@@ -134,7 +154,7 @@ jobs:
       - name: Update aiagent Repository (if needed)
         if: steps.check_updates.outputs.updates_needed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.AGENT_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.AI_AGENT_REPO_TOKEN }}
         run: |
           cd aiagent
           
