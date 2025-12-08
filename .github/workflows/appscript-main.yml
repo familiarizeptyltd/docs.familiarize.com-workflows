@@ -23,7 +23,7 @@ on:
       num_topics:
         description: 'Number of topics to process (0 = use defaults)'
         required: false
-        default: '0'
+        default: '1'
         type: string
 
 jobs:
