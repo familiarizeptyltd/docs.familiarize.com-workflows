@@ -1,4 +1,4 @@
-name: Main Content Update Workflow
+name: AppScript Main
 
 # This workflow is designed to run from a centralized workflow repository
 # It orchestrates the agent from one repo and commits content to another repo
