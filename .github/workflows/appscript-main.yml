@@ -1,0 +1,231 @@
+name: Main Content Update Workflow
+
+# This workflow is designed to run from a centralized workflow repository
+# It orchestrates the agent from one repo and commits content to another repo
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      execution_mode:
+        description: 'Execution mode'
+        required: true
+        default: 'manual'
+        type: choice
+        options:
+          - manual
+          - test
+          - dry-run
+      num_topics:
+        description: 'Number of topics to process (0 = use defaults)'
+        required: false
+        default: '0'
+        type: string
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hours max for full workflow
+
+    steps:
+      # Step 1: Checkout the agent code repository
+      - name: Checkout agent repository
+        uses: actions/checkout@v4
+        with:
+          repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+          ref: main
+          path: agent-repo
+          token: ${{ secrets.FAMILIARIZEWEBSITEMANAGERAPPSSCRIPT2APP_AGENT_TOKEN || secrets.GH_PAT }}
+
+      # Step 2: Checkout the content repository (where content will be committed)
+      - name: Checkout content repository
+        uses: actions/checkout@v4
+        with:
+          repository: familiarizeptyltd/docs.familiarize.com
+          ref: agentMigration
+          path: content-repo
+          token: ${{ secrets.REPO_TOKEN || secrets.GH_PAT }}
+          fetch-depth: 1
+
+      # Step 3: Set up Python environment
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: agent-repo/familiarize-agent/requirements.txt
+
+      # Step 4: Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r agent-repo/familiarize-agent/requirements.txt
+
+      # Step 5: Create necessary directories in agent workspace
+      - name: Create necessary directories
+        run: |
+          mkdir -p agent-repo/familiarize-agent/logs
+          mkdir -p agent-repo/familiarize-agent/data/sqlite
+          mkdir -p agent-repo/familiarize-agent/data/embeddings
+
+      # Step 6: Link content repository to agent's expected location
+      - name: Link content repository
+        run: |
+          # Create symbolic link so agent can write to content repo
+          ln -s "$(pwd)/content-repo" agent-repo/familiarize-agent/content-output
+
+      # Step 7: Run LangGraph orchestrator
+      - name: Run LangGraph orchestrator
+        env:
+          # GitHub tokens (dual PAT support with fallback)
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_PAT }}
+          GITHUB_AGENT_TOKEN: ${{ secrets.FAMILIARIZEWEBSITEMANAGERAPPSSCRIPT2APP_AGENT_TOKEN || '' }}
+          # Professionalize API
+          PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
+          PROFESSIONALIZE_BASE_URL: https://llm.professionalize.com/v1
+          PROFESSIONALIZE_LLM_MODEL: gpt-oss
+          PROFESSIONALIZE_EMBEDDING_MODEL: qwen3-embedding-8b
+          # LLM Provider Selection
+          LLM_PROVIDER: professionalize
+          EMBEDDING_PROVIDER: professionalize
+          EMBEDDING_DIMENSIONS: 1536
+          # API Keys (optional - for fallback or switching)
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_CUSTOM_SEARCH_API_KEY: ${{ secrets.GOOGLE_CUSTOM_SEARCH_API_KEY }}
+          CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
+          GOOGLE_ADS_CUSTOMER_ID: ${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}
+          GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+          # Workflow configuration
+          EXECUTION_MODE: ${{ github.event.inputs.execution_mode || 'scheduled' }}
+          NUM_TOPICS: ${{ github.event.inputs.num_topics || '0' }}
+          # Content repository configuration
+          GITHUB_OWNER: familiarizeptyltd
+          GITHUB_REPO: docs.familiarize.com
+          GITHUB_BRANCH: agentMigration
+          # Agent repository configuration
+          GITHUB_AGENT_OWNER: salmansarfraz
+          GITHUB_AGENT_REPO: familiarizeWebsiteManagerAppsScript2App
+          GITHUB_AGENT_BRANCH: main
+          CONTENT_OUTPUT_DIR: /home/runner/work/$(basename $(pwd))/$(basename $(pwd))/content-repo/content/en/glossary
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          echo "Starting Familiarize Agent with mode: ${EXECUTION_MODE}"
+          echo "Content will be written to: ${CONTENT_OUTPUT_DIR}"
+          python -m src.agents.orchestrator
+
+      # Step 8: Commit updated content to content repository
+      - name: Commit updated content
+        working-directory: content-repo
+        run: |
+          git config user.name "Familiarize Agent"
+          git config user.email "agent@familiarize.com"
+
+          # Add all content changes
+          git add content/
+
+          # Also add any data files if they exist
+          git add data/ || true
+
+          # Commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No content changes to commit"
+          else
+            git commit -m "🤖 Update content after workflow run - $(date +'%Y-%m-%d %H:%M UTC')"
+            git push
+            echo "✅ Content committed and pushed successfully"
+          fi
+
+      # Step 9: Upload execution report from agent workspace
+      - name: Upload execution report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-report-${{ github.run_number }}
+          path: |
+            agent-repo/familiarize-agent/logs/
+            agent-repo/familiarize-agent/data/sqlite/operational.db
+          retention-days: 30
+
+      # Step 10: Generate summary
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Workflow Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Execution Mode**: ${{ github.event.inputs.execution_mode || 'scheduled' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Agent Repository**: salmansarfraz/familiarizeWebsiteManagerAppsScript2App" >> $GITHUB_STEP_SUMMARY
+          echo "- **Content Repository**: familiarizeptyltd/docs.familiarize.com (branch: agentMigration)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Try to extract metrics from logs
+          if [ -f agent-repo/familiarize-agent/logs/agent.log ]; then
+            echo "### Execution Metrics" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            tail -n 50 agent-repo/familiarize-agent/logs/agent.log >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # Step 11: Notify on failure
+      - name: Notify on failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: '❌ Main Workflow Failed: ${{ github.workflow }}'
+          to: ${{ secrets.ADMIN_EMAIL }}
+          from: Familiarize Agent <${{ secrets.SMTP_USERNAME }}>
+          body: |
+            🚨 Main Content Update Workflow Failed
+
+            Workflow Repository: ${{ github.repository }}
+            Agent Repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+            Content Repository: familiarizeptyltd/docs.familiarize.com
+
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            Execution Mode: ${{ github.event.inputs.execution_mode || 'scheduled' }}
+
+            Check the logs and artifacts:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Execution Report: Available in run artifacts
+        continue-on-error: true
+
+      # Step 12: Notify on success
+      - name: Notify on success
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: '✅ Main Workflow Completed: ${{ github.workflow }}'
+          to: ${{ secrets.ADMIN_EMAIL }}
+          from: Familiarize Agent <${{ secrets.SMTP_USERNAME }}>
+          body: |
+            ✅ Main Content Update Workflow Completed Successfully
+
+            Workflow Repository: ${{ github.repository }}
+            Agent Repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+            Content Repository: familiarizeptyltd/docs.familiarize.com
+
+            Commit: ${{ github.sha }}
+            Execution Mode: ${{ github.event.inputs.execution_mode || 'scheduled' }}
+
+            View execution summary:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            View updated content:
+            https://github.com/familiarizeptyltd/docs.familiarize.com/tree/agentMigration/content
+        continue-on-error: true
