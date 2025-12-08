@@ -112,7 +112,7 @@ jobs:
         run: |
           echo "Starting Familiarize Agent with mode: ${EXECUTION_MODE}"
           echo "Content will be written to: ${CONTENT_OUTPUT_DIR}"
-          python -m src.agents.orchestrator
+          python -m src.scripts.daily_morning_workflow
 
       # Step 8: Commit updated content to content repository
       - name: Commit updated content
