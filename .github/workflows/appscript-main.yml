@@ -107,7 +107,7 @@ jobs:
           GITHUB_AGENT_OWNER: salmansarfraz
           GITHUB_AGENT_REPO: familiarizeWebsiteManagerAppsScript2App
           GITHUB_AGENT_BRANCH: main
-          CONTENT_OUTPUT_DIR: /home/runner/work/$(basename $(pwd))/$(basename $(pwd))/content-repo/content/en/glossary
+          CONTENT_OUTPUT_DIR: ${{ github.workspace }}/content-repo/content/en/Glossary
         working-directory: agent-repo/familiarize-agent
         run: |
           echo "Starting Familiarize Agent with mode: ${EXECUTION_MODE}"
