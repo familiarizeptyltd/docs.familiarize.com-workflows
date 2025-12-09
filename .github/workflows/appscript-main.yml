@@ -80,7 +80,34 @@ jobs:
           # Create symbolic link so agent can write to content repo
           ln -s "$(pwd)/content-repo" agent-repo/familiarize-agent/content-output
 
-      # Step 7: Run LangGraph orchestrator
+      # Step 7: Clear Python cache to ensure fresh imports
+      - name: Clear Python cache
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+          find . -type f -name "*.pyc" -delete 2>/dev/null || true
+          echo "Python cache cleared"
+
+      # Step 7.5: Debug - Verify content repository filesystem access
+      - name: Debug filesystem access
+        run: |
+          echo "=== Verifying Content Repository Access ==="
+          echo "Working directory: $(pwd)"
+          echo "Content repo path: ${{ github.workspace }}/content-repo"
+          echo ""
+          echo "Content repo exists?"
+          ls -la "${{ github.workspace }}/content-repo" || echo "❌ Content repo not found"
+          echo ""
+          echo "Glossary directory exists?"
+          ls -la "${{ github.workspace }}/content-repo/content/en/Glossary" || echo "❌ Glossary directory not found"
+          echo ""
+          echo "Sample glossary files:"
+          ls -1 "${{ github.workspace }}/content-repo/content/en/Glossary"/*.md | head -5 || echo "❌ No markdown files found"
+          echo ""
+          echo "Total markdown files:"
+          find "${{ github.workspace }}/content-repo/content/en/Glossary" -name "*.md" | wc -l
+
+      # Step 8: Run LangGraph orchestrator
       - name: Run LangGraph orchestrator
         env:
           # GitHub tokens (dual PAT support with fallback)
@@ -119,9 +146,9 @@ jobs:
         run: |
           echo "Starting Familiarize Agent with mode: ${EXECUTION_MODE}"
           echo "Content will be written to: ${CONTENT_OUTPUT_DIR}"
-          python -m src.scripts.daily_morning_workflow
+          python -m src.scripts.daily_morning_workflow      
 
-      # Step 8: Commit updated content to content repository
+      # Step 9: Commit updated content to content repository
       - name: Commit updated content
         working-directory: content-repo
         run: |
@@ -143,7 +170,7 @@ jobs:
             echo "✅ Content committed and pushed successfully"
           fi
 
-      # Step 9: Upload execution report from agent workspace
+      # Step 9.5: Upload execution report from agent workspace
       - name: Upload execution report
         if: always()
         uses: actions/upload-artifact@v4
