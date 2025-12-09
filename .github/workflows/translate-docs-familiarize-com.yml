@@ -10,7 +10,8 @@ jobs:
       WEBSITE: docs.familiarize.com
       HUGO_THEME: geekdocs
       LLM: chatgpt
-      LANGS: ko,fr,nl,de,pt,ru,vi,zh,ja,zh-tw,es,fil,ms,id,tr,it,ar,fa
+      LANGS: ko
+      # LANGS: ko,fr,nl,de,pt,ru,vi,zh,ja,zh-tw,es,fil,ms,id,tr,it,ar,fa
       # Relative paths to Hugo & websiteManager repos paths on the runner
       HUGO_CONTENT_PATH: hugo_content/content/en
       HUGO_I18N_PATH: hugo_content/themes/geekdoc/i18n/en.yaml
