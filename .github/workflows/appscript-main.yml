@@ -67,6 +67,13 @@ jobs:
           mkdir -p agent-repo/familiarize-agent/data/sqlite
           mkdir -p agent-repo/familiarize-agent/data/embeddings
 
+      # Step 5.5: Setup Google Service Account credentials
+      - name: Setup Google credentials
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/google-credentials.json
+          chmod 600 /tmp/google-credentials.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/google-credentials.json" >> $GITHUB_ENV
+      
       # Step 6: Link content repository to agent's expected location
       - name: Link content repository
         run: |
@@ -91,7 +98,6 @@ jobs:
           # API Keys (optional - for fallback or switching)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GOOGLE_CUSTOM_SEARCH_API_KEY: ${{ secrets.GOOGLE_CUSTOM_SEARCH_API_KEY }}
           CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
           GOOGLE_ADS_CUSTOMER_ID: ${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}
