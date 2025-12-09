@@ -2,9 +2,9 @@ name: Build & Deploy docs.familiarize.com
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Translate docs.familiarize.com"]
-    types: [completed]
+  #workflow_run:
+    #workflows: ["Translate docs.familiarize.com"]
+    #types: [completed]
 
 jobs:
   build:
