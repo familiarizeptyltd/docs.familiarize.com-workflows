@@ -1,6 +1,23 @@
 name: Translate docs.familiarize.com
+
 on:
   workflow_dispatch:
+    inputs:
+      langs:
+        description: "Language(s) to translate to (e.g. fr or ko,fr,nl,de)"
+        required: true
+        default: "ko,fr,nl,de,pt,ru,vi,zh,ja,zh-tw,es,fil,ms,id,tr,it,ar,fa"
+        type: string
+      llm:
+        description: "LLM (chatgpt, professionalize)"
+        required: true
+        default: "chatgpt"
+        type: string
+      hugoTheme:
+        description: "Hugo Theme (geekdocs, professionalize)"
+        required: true
+        default: "geekdocs"
+        type: string
 
 jobs:
   manage-content:
@@ -8,10 +25,11 @@ jobs:
     env:
       # Configuration parameters
       WEBSITE: docs.familiarize.com
-      HUGO_THEME: geekdocs
-      LLM: chatgpt
-      LANGS: ko
-      # LANGS: ko,fr,nl,de,pt,ru,vi,zh,ja,zh-tw,es,fil,ms,id,tr,it,ar,fa
+      HUGO_THEME: ${{ github.event.inputs.hugoTheme }}
+      LLM: ${{ github.event.inputs.llm }}
+      LANGS: ${{ github.event.inputs.langs }}
+      # Example: ko,fr,nl,de,pt,ru,vi,zh,ja,zh-tw,es,fil,ms,id,tr,it,ar,fa
+
       # Relative paths to Hugo & websiteManager repos paths on the runner
       HUGO_CONTENT_PATH: hugo_content/content/en
       HUGO_I18N_PATH: hugo_content/themes/geekdoc/i18n/en.yaml
@@ -40,7 +58,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
 
       # 4. Build the C# project
       - name: Build C# project
@@ -62,7 +80,7 @@ jobs:
           git pull --strategy=ours origin master
           git add .
           # If no changes are present, commit won't run. That's fine.
-          git diff --cached --quiet || git commit -m "Updated ${{ env.LANGS }} translation artifacts for ${{ env.WEBSITE }} ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"         
+          git diff --cached --quiet || git commit -m "Updated ${LANGS} translation artifacts for ${WEBSITE} ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"         
           # Push back to main branch of websiteManager repo
           git push origin HEAD:master
 
@@ -76,6 +94,6 @@ jobs:
           git fetch origin
           git pull --strategy=ours origin main
           git add .
-          git diff --cached --quiet || git commit -m "Translated ${{ env.WEBSITE }} to ${{ env.LANGS }} ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
+          git diff --cached --quiet || git commit -m "Translated ${WEBSITE} to ${LANGS} ($(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
           # Push back to main branch of the Hugo repo
           git push origin HEAD:main
