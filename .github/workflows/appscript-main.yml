@@ -170,7 +170,30 @@ jobs:
             echo "✅ Content committed and pushed successfully"
           fi
 
-      # Step 9.5: Upload execution report from agent workspace
+      # Step 9.1: Upload execution report from agent workspace
+      - name: Commit queue status updates to agent repository
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          git config user.name "Familiarize Agent"
+          git config user.email "agent@familiarize.com"
+      
+          # Add queue database updates (status changes: PENDING → COMPLETED)
+          git add data/topic_queue/
+      
+          # Commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No queue updates to commit"
+          else
+            git commit -m "🤖 Update topic queue status after daily run - $(date +'%Y-%m-%d %H:%M UTC')"
+            
+            # Push to agent repo
+            cd ../../agent-repo
+            git push
+            
+            echo "✅ Queue status updates committed and pushed"
+          fi
+
+      # Step 9.2: Upload execution report from agent workspace
       - name: Upload execution report
         if: always()
         uses: actions/upload-artifact@v4
