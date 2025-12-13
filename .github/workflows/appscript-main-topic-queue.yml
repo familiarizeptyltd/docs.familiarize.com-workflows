@@ -1,0 +1,305 @@
+name: AppScript Main (Monthly Topic Queue Generation)
+
+# Generate and schedule topics for the next 30 days
+# Runs automatically on the 1st of each month, or can be triggered manually
+
+on:
+  schedule:
+    # Run on 1st of every month at 00:00 UTC (midnight)
+    - cron: '0 0 1 * *'
+  
+  workflow_dispatch:
+    inputs:
+      queue_duration_days:
+        description: 'Queue duration in days (1-365)'
+        required: false
+        default: '30'
+        type: string
+      daily_quota:
+        description: 'Topics to generate per day'
+        required: false
+        default: '7'
+        type: string
+      dry_run:
+        description: 'Dry run mode (no database commits)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  generate-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # 1 hour max for queue generation
+
+    steps:
+      # Step 1: Checkout the agent code repository
+      - name: Checkout agent repository
+        uses: actions/checkout@v4
+        with:
+          repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+          ref: main
+          path: agent-repo
+          token: ${{ secrets.FAMILIARIZEWEBSITEMANAGERAPPSSCRIPT2APP_AGENT_TOKEN || secrets.GH_PAT }}
+
+      # Step 2: Set up Python environment
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: agent-repo/familiarize-agent/requirements.txt
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r agent-repo/familiarize-agent/requirements.txt
+
+      # Step 4: Create necessary directories
+      - name: Create necessary directories
+        run: |
+          mkdir -p agent-repo/familiarize-agent/logs
+          mkdir -p agent-repo/familiarize-agent/data/topic_queue
+          mkdir -p agent-repo/familiarize-agent/data/embeddings
+
+      # Step 5: Setup Google Service Account credentials
+      - name: Setup Google credentials
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/google-credentials.json
+          chmod 600 /tmp/google-credentials.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/google-credentials.json" >> $GITHUB_ENV
+
+      # Step 6: Clear Python cache
+      - name: Clear Python cache
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+          find . -type f -name "*.pyc" -delete 2>/dev/null || true
+          echo "Python cache cleared"
+
+      # Step 7: Override queue configuration if provided
+      - name: Configure queue settings
+        if: github.event.inputs.queue_duration_days != '' || github.event.inputs.daily_quota != ''
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          DURATION="${{ github.event.inputs.queue_duration_days || '30' }}"
+          QUOTA="${{ github.event.inputs.daily_quota || '7' }}"
+          
+          echo "Configuring queue: ${DURATION} days × ${QUOTA} topics/day = $((DURATION * QUOTA)) total topics"
+          
+          # Set environment variables for config override
+          echo "QUEUE_DURATION_DAYS=${DURATION}" >> $GITHUB_ENV
+          echo "DAILY_QUOTA=${QUOTA}" >> $GITHUB_ENV
+
+      # Step 8: Run queue generation script
+      - name: Generate topic queue
+        env:
+          # API Keys
+          PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
+          PROFESSIONALIZE_BASE_URL: https://llm.professionalize.com/v1
+          PROFESSIONALIZE_LLM_MODEL: gpt-oss
+          PROFESSIONALIZE_EMBEDDING_MODEL: qwen3-embedding-8b
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          
+          # Google Services
+          GOOGLE_CUSTOM_SEARCH_API_KEY: ${{ secrets.GOOGLE_CUSTOM_SEARCH_API_KEY }}
+          CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
+          GOOGLE_ADS_CUSTOMER_ID: ${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}
+          GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+          
+          # LLM Provider Selection
+          LLM_PROVIDER: professionalize
+          EMBEDDING_PROVIDER: professionalize
+          EMBEDDING_DIMENSIONS: 1536
+          
+          # Queue Configuration (from workflow inputs or defaults)
+          QUEUE_DURATION_DAYS: ${{ github.event.inputs.queue_duration_days || '30' }}
+          DAILY_QUOTA: ${{ github.event.inputs.daily_quota || '7' }}
+          
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          echo "========================================================================"
+          echo "Starting Monthly Topic Queue Generation"
+          echo "========================================================================"
+          echo ""
+          echo "Configuration:"
+          echo "  - Duration: ${QUEUE_DURATION_DAYS} days"
+          echo "  - Daily Quota: ${DAILY_QUOTA} topics/day"
+          echo "  - Total Topics: $((QUEUE_DURATION_DAYS * DAILY_QUOTA))"
+          echo "  - Trigger: ${{ github.event_name }}"
+          echo ""
+          
+          # Run queue scheduler
+          python -m src.scripts.queue_topic_scheduler
+          
+          EXIT_CODE=$?
+          
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo ""
+            echo "✅ Queue generation completed successfully!"
+          else
+            echo ""
+            echo "❌ Queue generation failed with exit code: $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
+
+      # Step 9: Display queue statistics
+      - name: Display queue statistics
+        if: always()
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          echo "========================================================================"
+          echo "Queue Statistics"
+          echo "========================================================================"
+          
+          # Check if queue database exists
+          if [ -d "data/topic_queue" ]; then
+            echo ""
+            echo "Queue database directory contents:"
+            ls -lh data/topic_queue/
+            echo ""
+            
+            # Try to extract stats from logs
+            if [ -f "logs/agent.log" ]; then
+              echo "Recent log entries:"
+              echo "---"
+              tail -n 30 logs/agent.log | grep -E "(queue|topics|scheduled|tier)" || echo "No queue-related logs found"
+            fi
+          else
+            echo "⚠️  Queue database directory not found"
+          fi
+
+      # Step 10: Commit queue database to agent repository
+      - name: Commit queue database
+        if: ${{ !github.event.inputs.dry_run }}
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          git config user.name "Familiarize Agent"
+          git config user.email "agent@familiarize.com"
+
+          # Add queue database files
+          git add data/topic_queue/
+
+          # Also add logs for debugging
+          git add logs/ || true
+
+          # Commit if there are changes
+          if git diff --staged --quiet; then
+            echo "⚠️  No queue database changes to commit"
+          else
+            DURATION="${{ github.event.inputs.queue_duration_days || '30' }}"
+            QUOTA="${{ github.event.inputs.daily_quota || '7' }}"
+            TOTAL=$((DURATION * QUOTA))
+            
+            git commit -m "🤖 Generate ${DURATION}-day topic queue (${TOTAL} topics) - $(date +'%Y-%m-%d %H:%M UTC')"
+            
+            # Push to agent repo
+            cd ../../
+            cd agent-repo
+            git push
+            
+            echo "✅ Queue database committed and pushed successfully"
+          fi
+
+      # Step 11: Upload queue database as artifact
+      - name: Upload queue database artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topic-queue-${{ github.run_number }}
+          path: |
+            agent-repo/familiarize-agent/data/topic_queue/
+            agent-repo/familiarize-agent/logs/
+          retention-days: 90
+
+      # Step 12: Generate summary
+      - name: Generate summary
+        if: always()
+        working-directory: agent-repo/familiarize-agent
+        run: |
+          echo "## 📅 Monthly Queue Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Queue Duration**: ${{ github.event.inputs.queue_duration_days || '30' }} days" >> $GITHUB_STEP_SUMMARY
+          echo "- **Daily Quota**: ${{ github.event.inputs.daily_quota || '7' }} topics/day" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Topics**: $(((${{ github.event.inputs.queue_duration_days || '30' }} * ${{ github.event.inputs.daily_quota || '7' }})))" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract queue statistics from logs
+          if [ -f logs/agent.log ]; then
+            echo "### Execution Logs" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            tail -n 50 logs/agent.log >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "- Queue is now populated for the next ${{ github.event.inputs.queue_duration_days || '30' }} days" >> $GITHUB_STEP_SUMMARY
+          echo "- Daily workflow will automatically fetch topics from the queue" >> $GITHUB_STEP_SUMMARY
+          echo "- Queue database committed to \`data/topic_queue/\` in agent repository" >> $GITHUB_STEP_SUMMARY
+
+      # Step 13: Notify on failure
+      - name: Notify on failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: '❌ Queue Generation Failed: ${{ github.workflow }}'
+          to: ${{ secrets.ADMIN_EMAIL }}
+          from: Familiarize Agent <${{ secrets.SMTP_USERNAME }}>
+          body: |
+            🚨 Monthly Topic Queue Generation Failed
+
+            Repository: ${{ github.repository }}
+            Agent Repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+
+            Configuration:
+            - Queue Duration: ${{ github.event.inputs.queue_duration_days || '30' }} days
+            - Daily Quota: ${{ github.event.inputs.daily_quota || '7' }} topics/day
+
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+
+            Check the logs and artifacts:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        continue-on-error: true
+
+      # Step 14: Notify on success
+      - name: Notify on success
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: '✅ Queue Generated Successfully: ${{ github.workflow }}'
+          to: ${{ secrets.ADMIN_EMAIL }}
+          from: Familiarize Agent <${{ secrets.SMTP_USERNAME }}>
+          body: |
+            ✅ Monthly Topic Queue Generation Completed Successfully
+
+            Repository: ${{ github.repository }}
+            Agent Repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+
+            Configuration:
+            - Queue Duration: ${{ github.event.inputs.queue_duration_days || '30' }} days
+            - Daily Quota: ${{ github.event.inputs.daily_quota || '7' }} topics/day
+            - Total Topics: $((${{ github.event.inputs.queue_duration_days || '30' }} * ${{ github.event.inputs.daily_quota || '7' }}))
+
+            Queue database has been committed to the agent repository.
+            Daily workflow will now fetch topics from the queue automatically.
+
+            View execution summary:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            View queue database:
+            https://github.com/salmansarfraz/familiarizeWebsiteManagerAppsScript2App/tree/main/familiarize-agent/data/topic_queue
+        continue-on-error: true
