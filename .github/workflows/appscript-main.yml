@@ -39,7 +39,7 @@ jobs:
       - name: Checkout agent repository
         uses: actions/checkout@v4
         with:
-          repository: salmansarfacz/familiarizeWebsiteManagerAppsScript2App
+          repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
           ref: main
           path: agent-repo
           token: ${{ secrets.FAMILIARIZEWEBSITEMANAGERAPPSSCRIPT2APP_AGENT_TOKEN || secrets.GH_PAT }}
