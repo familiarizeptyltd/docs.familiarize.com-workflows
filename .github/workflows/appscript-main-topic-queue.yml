@@ -1,4 +1,4 @@
-name: Monthly Topic Queue Generation
+name: AppScript Main (Monthly Topic Queue Generation)
 
 # Generate and schedule topics for the next 30 days
 # Runs automatically on the 1st of each month, or can be triggered manually
