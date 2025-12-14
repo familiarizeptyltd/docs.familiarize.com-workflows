@@ -137,7 +137,7 @@ jobs:
           echo ""
           
           # Run queue scheduler with tenant parameter
-          python src/scripts/queue_topic_scheduler.py --tenant docs.familiarize.com
+          python src/scripts/queue_topic_scheduler.py --tenant ${TENANT_ID}
           
           EXIT_CODE=$?
           
