@@ -1,4 +1,4 @@
-name: Daily Content Generation
+name: AppScript Main (Daily Content Generation)
 
 # Generates content from pre-scheduled topic queue
 # Multi-tenant architecture: Queue stored in content repo
