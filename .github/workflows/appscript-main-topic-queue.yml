@@ -135,6 +135,10 @@ jobs:
           echo "  - Queue Storage: ${TARGET_REPO_PATH}/.agent-data/topic_queue/"
           echo "  - Trigger: ${{ github.event_name }}"
           echo ""
+
+          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/google-credentials.json
+          chmod 600 /tmp/google-credentials.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/google-credentials.json" >> $GITHUB_ENV
           
           # Run queue scheduler with tenant parameter
           python src/scripts/queue_topic_scheduler.py --tenant ${TENANT_ID}
