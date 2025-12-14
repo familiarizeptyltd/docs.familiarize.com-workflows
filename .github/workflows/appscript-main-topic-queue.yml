@@ -1,4 +1,4 @@
-name: AppScript Main (Monthly Topic Queue Generation)
+name: AppScript Main (Topic Queue Generation)
 
 # Generate and schedule topics for the next 30 days
 # Runs automatically on the 1st of each month, or can be triggered manually
@@ -6,14 +6,16 @@ name: AppScript Main (Monthly Topic Queue Generation)
 on:
   schedule:
     # Run on 1st of every month at 00:00 UTC (midnight)
-    - cron: '0 0 1 * *'
+    # - cron: '0 0 1 * *'
+    # Run on every Monday at 00:00 UTC (midnight)
+    - cron: '0 0 * * 1'
   
   workflow_dispatch:
     inputs:
       queue_duration_days:
         description: 'Queue duration in days (1-365)'
         required: false
-        default: '30'
+        default: '7'
         type: string
       daily_quota:
         description: 'Topics to generate per day'
