@@ -33,6 +33,7 @@ jobs:
 
     env:
       TENANT_ID: docs.familiarize.com
+      GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
 
     steps:
       # Step 1: Checkout agent repository
@@ -95,6 +96,7 @@ jobs:
           # Multi-tenant configuration
           TENANT_ID: docs.familiarize.com
           TARGET_REPO_PATH: ${{ github.workspace }}/content-repo
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
           
           # API Keys
           PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
