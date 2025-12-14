@@ -1,9 +1,13 @@
-name: AppScript Main
+name: Daily Content Generation
 
-# This workflow is designed to run from a centralized workflow repository
-# It orchestrates the agent from one repo and commits content to another repo
+# Generates content from pre-scheduled topic queue
+# Multi-tenant architecture: Queue stored in content repo
 
 on:
+  schedule:
+    # Run daily at 6 AM UTC
+    - cron: '0 6 * * *'
+    
   workflow_dispatch:
     inputs:
       execution_mode:
@@ -13,30 +17,34 @@ on:
         type: choice
         options:
           - manual
+          - scheduled
           - test
           - dry-run
       num_topics:
-        description: 'Number of topics to process (0 = use defaults)'
+        description: 'Number of topics (0 = use daily quota from config)'
         required: false
-        default: '1'
+        default: '0'
         type: string
 
 jobs:
-  run-agent:
+  generate-content:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 2 hours max for full workflow
+    timeout-minutes: 120
+
+    env:
+      TENANT_ID: docs.familiarize.com
 
     steps:
-      # Step 1: Checkout the agent code repository
+      # Step 1: Checkout agent repository
       - name: Checkout agent repository
         uses: actions/checkout@v4
         with:
-          repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+          repository: salmansarfacz/familiarizeWebsiteManagerAppsScript2App
           ref: main
           path: agent-repo
           token: ${{ secrets.FAMILIARIZEWEBSITEMANAGERAPPSSCRIPT2APP_AGENT_TOKEN || secrets.GH_PAT }}
 
-      # Step 2: Checkout the content repository (where content will be committed)
+      # Step 2: Checkout content repository
       - name: Checkout content repository
         uses: actions/checkout@v4
         with:
@@ -46,7 +54,7 @@ jobs:
           token: ${{ secrets.REPO_TOKEN || secrets.GH_PAT }}
           fetch-depth: 1
 
-      # Step 3: Set up Python environment
+      # Step 3: Set up Python
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -60,163 +68,173 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r agent-repo/familiarize-agent/requirements.txt
 
-      # Step 5: Create necessary directories in agent workspace
+      # Step 5: Create necessary directories
       - name: Create necessary directories
         run: |
           mkdir -p agent-repo/familiarize-agent/logs
-          mkdir -p agent-repo/familiarize-agent/data/sqlite
-          mkdir -p agent-repo/familiarize-agent/data/embeddings
+          mkdir -p content-repo/.agent-data/topic_queue
+          mkdir -p content-repo/.agent-data/embeddings
 
-      # Step 5.5: Setup Google Service Account credentials
+      # Step 6: Setup Google credentials
       - name: Setup Google credentials
         run: |
           echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/google-credentials.json
           chmod 600 /tmp/google-credentials.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/google-credentials.json" >> $GITHUB_ENV
-      
-      # Step 6: Link content repository to agent's expected location
-      - name: Link content repository
-        run: |
-          # Create symbolic link so agent can write to content repo
-          ln -s "$(pwd)/content-repo" agent-repo/familiarize-agent/content-output
 
-      # Step 7: Clear Python cache to ensure fresh imports
+      # Step 7: Clear Python cache
       - name: Clear Python cache
         working-directory: agent-repo/familiarize-agent
         run: |
           find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
           find . -type f -name "*.pyc" -delete 2>/dev/null || true
-          echo "Python cache cleared"
 
-      # Step 7.5: Debug - Verify content repository filesystem access
-      - name: Debug filesystem access
+      # Step 8: Check if queue exists
+      - name: Check topic queue
+        id: check_queue
         run: |
-          echo "=== Verifying Content Repository Access ==="
-          echo "Working directory: $(pwd)"
-          echo "Content repo path: ${{ github.workspace }}/content-repo"
-          echo ""
-          echo "Content repo exists?"
-          ls -la "${{ github.workspace }}/content-repo" || echo "❌ Content repo not found"
-          echo ""
-          echo "Glossary directory exists?"
-          ls -la "${{ github.workspace }}/content-repo/content/en/Glossary" || echo "❌ Glossary directory not found"
-          echo ""
-          echo "Sample glossary files:"
-          ls -1 "${{ github.workspace }}/content-repo/content/en/Glossary"/*.md | head -5 || echo "❌ No markdown files found"
-          echo ""
-          echo "Total markdown files:"
-          find "${{ github.workspace }}/content-repo/content/en/Glossary" -name "*.md" | wc -l
+          if [ -d "content-repo/.agent-data/topic_queue" ] && [ "$(ls -A content-repo/.agent-data/topic_queue)" ]; then
+            echo "queue_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Topic queue found in content repository"
+            ls -lh content-repo/.agent-data/topic_queue/
+          else
+            echo "queue_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Topic queue not found - run Monthly Queue Generation first"
+          fi
 
-      # Step 8: Run LangGraph orchestrator
-      - name: Run LangGraph orchestrator
+      # Step 9: Run daily workflow
+      - name: Generate daily content
+        if: steps.check_queue.outputs.queue_exists == 'true'
         env:
-          # GitHub tokens (dual PAT support with fallback)
+          # Multi-tenant configuration
+          TENANT_ID: docs.familiarize.com
+          TARGET_REPO_PATH: ${{ github.workspace }}/content-repo
+          
+          # GitHub configuration
           GITHUB_TOKEN: ${{ secrets.REPO_TOKEN || secrets.GH_PAT }}
           GITHUB_AGENT_TOKEN: ${{ secrets.FAMILIARIZEWEBSITEMANAGERAPPSSCRIPT2APP_AGENT_TOKEN || '' }}
-          # Professionalize API
+          GITHUB_OWNER: familiarizeptyltd
+          GITHUB_REPO: docs.familiarize.com
+          GITHUB_BRANCH: agentMigration
+          GITHUB_AGENT_OWNER: salmansarfacz
+          GITHUB_AGENT_REPO: familiarizeWebsiteManagerAppsScript2App
+          GITHUB_AGENT_BRANCH: main
+          
+          # API Keys
           PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
           PROFESSIONALIZE_BASE_URL: https://llm.professionalize.com/v1
           PROFESSIONALIZE_LLM_MODEL: gpt-oss
           PROFESSIONALIZE_EMBEDDING_MODEL: qwen3-embedding-8b
-          # LLM Provider Selection
-          LLM_PROVIDER: professionalize
-          EMBEDDING_PROVIDER: professionalize
-          EMBEDDING_DIMENSIONS: 1536
-          # API Keys (optional - for fallback or switching)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          
+          # Google Services
           GOOGLE_CUSTOM_SEARCH_API_KEY: ${{ secrets.GOOGLE_CUSTOM_SEARCH_API_KEY }}
           CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
           GOOGLE_ADS_CUSTOMER_ID: ${{ secrets.GOOGLE_ADS_CUSTOMER_ID }}
           GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+          
+          # LLM Provider
+          LLM_PROVIDER: professionalize
+          EMBEDDING_PROVIDER: professionalize
+          EMBEDDING_DIMENSIONS: 1536
+          
           # Workflow configuration
           EXECUTION_MODE: ${{ github.event.inputs.execution_mode || 'scheduled' }}
-          NUM_TOPICS: ${{ github.event.inputs.num_topics || '0' }}
-          # Content repository configuration
-          GITHUB_OWNER: familiarizeptyltd
-          GITHUB_REPO: docs.familiarize.com
-          GITHUB_BRANCH: agentMigration
-          # Agent repository configuration
-          GITHUB_AGENT_OWNER: salmansarfraz
-          GITHUB_AGENT_REPO: familiarizeWebsiteManagerAppsScript2App
-          GITHUB_AGENT_BRANCH: main
-          TARGET_REPO_PATH: ${{ github.workspace }}/content-repo
-          CONTENT_OUTPUT_DIR: ${{ github.workspace }}/content-repo/content/en/Glossary          
+          DAILY_CONTENT_QUOTA: ${{ github.event.inputs.num_topics || '7' }}
+          CONTENT_OUTPUT_DIR: ${{ github.workspace }}/content-repo/content/en/Glossary
+          
         working-directory: agent-repo/familiarize-agent
         run: |
-          echo "Starting Familiarize Agent with mode: ${EXECUTION_MODE}"
-          echo "Content will be written to: ${CONTENT_OUTPUT_DIR}"
-          python -m src.scripts.daily_morning_workflow      
+          echo "========================================================================"
+          echo "Daily Content Generation - Multi-Tenant Architecture"
+          echo "========================================================================"
+          echo ""
+          echo "Configuration:"
+          echo "  - Tenant: ${TENANT_ID}"
+          echo "  - Execution Mode: ${EXECUTION_MODE}"
+          echo "  - Daily Quota: ${DAILY_CONTENT_QUOTA}"
+          echo "  - Queue Location: ${TARGET_REPO_PATH}/.agent-data/topic_queue/"
+          echo "  - Content Output: ${CONTENT_OUTPUT_DIR}"
+          echo ""
+          
+          # Run daily workflow with tenant parameter
+          python src/scripts/daily_morning_workflow.py --tenant docs.familiarize.com
 
-      # Step 9: Commit updated content to content repository
-      - name: Commit updated content
+      # Step 10: Queue not found - skip
+      - name: Queue not found
+        if: steps.check_queue.outputs.queue_exists == 'false'
+        run: |
+          echo "⚠️  Topic queue not found in content repository"
+          echo ""
+          echo "Please run the 'Monthly Queue Generation' workflow first to populate the queue."
+          echo ""
+          echo "Expected location: content-repo/.agent-data/topic_queue/"
+          exit 0
+
+      # Step 11: Commit content and queue updates
+      - name: Commit changes to content repository
+        if: steps.check_queue.outputs.queue_exists == 'true'
         working-directory: content-repo
         run: |
           git config user.name "Familiarize Agent"
           git config user.email "agent@familiarize.com"
 
-          # Add all content changes
+          # Add generated content
           git add content/
 
-          # Also add any data files if they exist
-          git add data/ || true
+          # Add queue status updates (PENDING → COMPLETED)
+          git add .agent-data/
 
-          # Commit if there are changes
           if git diff --staged --quiet; then
-            echo "No content changes to commit"
+            echo "No changes to commit"
           else
-            git commit -m "🤖 Update content after workflow run - $(date +'%Y-%m-%d %H:%M UTC')"
-            git push
-            echo "✅ Content committed and pushed successfully"
-          fi
-
-      # Step 9.1: Upload execution report from agent workspace
-      - name: Commit queue status updates to agent repository
-        working-directory: agent-repo/familiarize-agent
-        run: |
-          git config user.name "Familiarize Agent"
-          git config user.email "agent@familiarize.com"
-      
-          # Add queue database updates (status changes: PENDING → COMPLETED)
-          git add data/topic_queue/
-      
-          # Commit if there are changes
-          if git diff --staged --quiet; then
-            echo "No queue updates to commit"
-          else
-            git commit -m "🤖 Update topic queue status after daily run - $(date +'%Y-%m-%d %H:%M UTC')"
+            git commit -m "🤖 Daily content generation $(date +'%Y-%m-%d')
             
-            # Push to agent repo
-            cd ../../agent-repo
+            Tenant: docs.familiarize.com
+            Mode: ${{ github.event.inputs.execution_mode || 'scheduled' }}
+            
+            Updates:
+            - Generated content in content/en/Glossary/
+            - Updated topic queue status in .agent-data/topic_queue/
+            
+            Generated: $(date +'%Y-%m-%d %H:%M UTC')
+            "
+            
             git push
             
-            echo "✅ Queue status updates committed and pushed"
+            echo "✅ Content and queue updates committed successfully"
           fi
 
-      # Step 9.2: Upload execution report from agent workspace
-      - name: Upload execution report
+      # Step 12: Upload artifacts
+      - name: Upload execution artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: execution-report-${{ github.run_number }}
           path: |
             agent-repo/familiarize-agent/logs/
-            agent-repo/familiarize-agent/data/sqlite/operational.db
           retention-days: 30
 
-      # Step 10: Generate summary
+      # Step 13: Generate summary
       - name: Generate summary
         if: always()
         run: |
-          echo "## Workflow Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 📝 Daily Content Generation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tenant**: \`docs.familiarize.com\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Execution Mode**: ${{ github.event.inputs.execution_mode || 'scheduled' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Agent Repository**: salmansarfraz/familiarizeWebsiteManagerAppsScript2App" >> $GITHUB_STEP_SUMMARY
           echo "- **Content Repository**: familiarizeptyltd/docs.familiarize.com (branch: agentMigration)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          # Try to extract metrics from logs
+          
+          echo "### Architecture" >> $GITHUB_STEP_SUMMARY
+          echo "- **Queue Source**: \`.agent-data/topic_queue/\` (content repo)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Content Output**: \`content/en/Glossary/\` (content repo)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Queue Updates**: Committed to content repo" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
           if [ -f agent-repo/familiarize-agent/logs/agent.log ]; then
             echo "### Execution Metrics" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
@@ -224,7 +242,7 @@ jobs:
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
 
-      # Step 11: Notify on failure
+      # Step 14: Notify on failure
       - name: Notify on failure
         if: failure()
         uses: dawidd6/action-send-mail@v3
@@ -233,27 +251,21 @@ jobs:
           server_port: 587
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: '❌ Main Workflow Failed: ${{ github.workflow }}'
+          subject: '❌ Daily Content Generation Failed'
           to: ${{ secrets.ADMIN_EMAIL }}
           from: Familiarize Agent <${{ secrets.SMTP_USERNAME }}>
           body: |
-            🚨 Main Content Update Workflow Failed
+            🚨 Daily Content Generation Failed
 
-            Workflow Repository: ${{ github.repository }}
-            Agent Repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
+            Tenant: docs.familiarize.com
             Content Repository: familiarizeptyltd/docs.familiarize.com
-
-            Commit: ${{ github.sha }}
-            Author: ${{ github.actor }}
             Execution Mode: ${{ github.event.inputs.execution_mode || 'scheduled' }}
 
-            Check the logs and artifacts:
+            Check logs:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            Execution Report: Available in run artifacts
         continue-on-error: true
 
-      # Step 12: Notify on success
+      # Step 15: Notify on success
       - name: Notify on success
         if: success()
         uses: dawidd6/action-send-mail@v3
@@ -262,22 +274,22 @@ jobs:
           server_port: 587
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: '✅ Main Workflow Completed: ${{ github.workflow }}'
+          subject: '✅ Daily Content Generated Successfully'
           to: ${{ secrets.ADMIN_EMAIL }}
           from: Familiarize Agent <${{ secrets.SMTP_USERNAME }}>
           body: |
-            ✅ Main Content Update Workflow Completed Successfully
+            ✅ Daily Content Generation Completed
 
-            Workflow Repository: ${{ github.repository }}
-            Agent Repository: salmansarfraz/familiarizeWebsiteManagerAppsScript2App
-            Content Repository: familiarizeptyltd/docs.familiarize.com
-
-            Commit: ${{ github.sha }}
+            Tenant: docs.familiarize.com
             Execution Mode: ${{ github.event.inputs.execution_mode || 'scheduled' }}
-
-            View execution summary:
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            View updated content:
+            
+            Updates:
+            - Content generated in content/en/Glossary/
+            - Queue status updated in .agent-data/topic_queue/
+            
+            View content:
             https://github.com/familiarizeptyltd/docs.familiarize.com/tree/agentMigration/content
+            
+            View logs:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         continue-on-error: true
