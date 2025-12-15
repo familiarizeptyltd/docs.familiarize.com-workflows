@@ -30,7 +30,14 @@ on:
       llm_model:
         description: 'LLM model'
         required: false
-        default: 'gpt-oss'      
+        default: 'gpt-oss'
+        type: choice
+        options:
+        - got-oss
+        - gpt-5-mini
+        - gpt-5-nano
+        - gpt-4.1-mini
+        - gpt-4.1-nano
 
 jobs:
   execute-task:
