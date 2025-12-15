@@ -142,6 +142,7 @@ jobs:
           AIAGENT_CMD="$AIAGENT_CMD --auto"
           AIAGENT_CMD="$AIAGENT_CMD --mode orchestrator"
           AIAGENT_CMD="$AIAGENT_CMD --provider ${{ github.event.inputs.llm_provider }}"
+          AIAGENT_CMD="$AIAGENT_CMD --model ${{ github.event.inputs.llm_model }}"
           
           # Execute
           echo "Executing: $AIAGENT_CMD"
