@@ -33,7 +33,7 @@ on:
         default: 'gpt-oss'
         type: choice
         options:
-        - got-oss
+        - gpt-oss
         - gpt-5-mini
         - gpt-5-nano
         - gpt-4.1-mini
