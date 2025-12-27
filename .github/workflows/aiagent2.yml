@@ -146,7 +146,7 @@ jobs:
           # Add common parameters
           AIAGENT_CMD="$AIAGENT_CMD --workspace \"$WORKSPACE_PATH\""
           AIAGENT_CMD="$AIAGENT_CMD --auto"
-          AIAGENT_CMD="$AIAGENT_CMD --mode orchestrator"
+          AIAGENT_CMD="$AIAGENT_CMD --mode universal"
           AIAGENT_CMD="$AIAGENT_CMD --provider ${{ github.event.inputs.llm_provider }}"
           
           # Execute
