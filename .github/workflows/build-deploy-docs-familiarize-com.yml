@@ -75,7 +75,7 @@ jobs:
         run: |
           ( while true; do echo "[$(date)] build alive"; sleep 900; done ) &
           KEEPALIVE_PID=$!
-          hugo
+          timeout 60m hugo --logLevel info --templateMetrics --templateMetricsHints --printMemoryUsage --printPathWarnings
           kill $KEEPALIVE_PID
 
       - name: Deploy (hugo deploy)
