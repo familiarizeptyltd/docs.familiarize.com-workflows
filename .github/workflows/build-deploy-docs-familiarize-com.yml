@@ -3,7 +3,7 @@ name: docs.familiarize.com (Build & Deploy)
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["Translate docs.familiarize.com"]
+    workflows: ["docs.familiarize.com (Translate)"]
     types: [completed]
 
 jobs:
