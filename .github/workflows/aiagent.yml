@@ -167,6 +167,15 @@ jobs:
           # Check if there are any commits to push
           if git log origin/main..HEAD --oneline | grep -q .; then
             echo "Changes detected, pushing to remote..."
+            
+            # Fetch and rebase to handle concurrent changes
+            git fetch origin main
+            git rebase origin/main || {
+              echo "⚠️ Rebase conflict - attempting merge instead"
+              git rebase --abort
+              git pull --no-edit origin main
+            }
+            
             git push origin main
             echo "✓ Changes pushed successfully"
           else
