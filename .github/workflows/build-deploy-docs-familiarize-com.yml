@@ -1,4 +1,4 @@
-name: Build & Deploy docs.familiarize.com
+name: docs.familiarize.com (Build & Deploy)
 
 on:
   workflow_dispatch:
