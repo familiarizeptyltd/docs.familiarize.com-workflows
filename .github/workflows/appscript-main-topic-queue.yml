@@ -4,11 +4,11 @@ name: AppScript Main (Topic Queue Generation)
 # Runs automatically on the 1st of each month, or can be triggered manually
 
 on:
-  schedule:
+  #schedule:
     # Run on 1st of every month at 00:00 UTC (midnight)
     # - cron: '0 0 1 * *'
     # Run on every Monday at 00:00 UTC (midnight)
-    - cron: '0 0 * * 1'
+    #- cron: '0 0 * * 1'
   
   workflow_dispatch:
     inputs:
