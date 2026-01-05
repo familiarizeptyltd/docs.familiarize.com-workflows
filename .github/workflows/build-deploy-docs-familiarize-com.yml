@@ -69,14 +69,65 @@ jobs:
         with:
           hugo-version: "0.123.8"
 
-      - name: Build Hugo (keep-alive)
+      - name: Build Hugo (watchdog + stack dump)
         working-directory: docs_repo
         shell: bash
         run: |
+          set -euo pipefail
+      
+          LOG=hugo.log
+          : > "$LOG"
+      
+          # keep-alive pings (so Actions doesn't think it's frozen)
           ( while true; do echo "[$(date)] build alive"; sleep 900; done ) &
           KEEPALIVE_PID=$!
-          hugo --logLevel debug --panicOnWarning --trace --printPathWarnings --printMemoryUsage
-          kill $KEEPALIVE_PID
+      
+          # run hugo and capture output
+          stdbuf -oL -eL hugo --logLevel info --printMemoryUsage 2>&1 | tee -a "$LOG" &
+          HUGO_PID=$!
+      
+          echo "Hugo PID: $HUGO_PID"
+      
+          # Track last meaningful progress line
+          LAST_TS=$(date +%s)
+      
+          # If Hugo prints "step render substep", treat as progress
+          ( tail -n 0 -F "$LOG" | while read -r line; do
+              if echo "$line" | grep -q "step render substep"; then
+                LAST_TS=$(date +%s)
+              fi
+            done
+          ) &
+          TAIL_PID=$!
+      
+          # Watchdog loop: if no progress for 20 minutes, dump stacks and fail
+          while kill -0 "$HUGO_PID" 2>/dev/null; do
+            sleep 60
+            NOW=$(date +%s)
+            IDLE=$((NOW - LAST_TS))
+      
+            if [ "$IDLE" -ge $((20*60)) ]; then
+              echo "No render-step progress for 20 minutes. Dumping goroutines (SIGQUIT)..."
+              kill -QUIT "$HUGO_PID" || true
+              sleep 8
+              echo "Stopping Hugo after stack dump..."
+              kill -TERM "$HUGO_PID" || true
+              sleep 5
+              kill -KILL "$HUGO_PID" || true
+              exit 1
+            fi
+          done
+      
+          # Cleanup
+          kill "$TAIL_PID" 2>/dev/null || true
+          wait "$HUGO_PID"
+          HUGO_EXIT=$?
+      
+          kill "$KEEPALIVE_PID" 2>/dev/null || true
+      
+          echo "Hugo finished with exit code $HUGO_EXIT"
+          exit "$HUGO_EXIT"
+
 
       - name: Deploy (hugo deploy)
         working-directory: docs_repo
