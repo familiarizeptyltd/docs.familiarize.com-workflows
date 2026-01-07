@@ -10,7 +10,7 @@ jobs:
   build:
     name: Build and Deploy Job
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
@@ -36,16 +36,15 @@ jobs:
       - name: Generate llms.txt
         working-directory: docs_repo
         env:
-          BASE_URL: "https://docs.familiarize.com"
-          MAX_LINKS: "5000"
-          VALIDATE_HTTP: "0"
-          VALIDATE_MAX: "800"
-          VALIDATE_TIMEOUT: "3"
-          ALLOW_EXTERNAL: "0"
-          STRICT_URL: "0"
+          BASE_URL: "https://docs.familiarize.com"   # optional; remove to use relative links
+          MAX_LINKS: "5000"                           # optional cap
+          VALIDATE_HTTP: "0"                         # 0|1  (default 0 = off) - 404 checking
+          VALIDATE_MAX: "800"                        # cap validated URLs
+          VALIDATE_TIMEOUT: "3"                      # seconds per request
+          ALLOW_EXTERNAL: "0"                        # skip other domains
+          STRICT_URL: "0"                            # respect front-matter "url:"
         run: |
           python3 scripts/generate_llms.py
-
       # Commit only llms.txt if changed
       - name: Commit llms.txt (if changed)
         working-directory: docs_repo
@@ -54,7 +53,6 @@ jobs:
           set -e
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           if [[ -n "$(git status --porcelain static/llms.txt)" ]]; then
             git add static/llms.txt
             git commit -m "Updated llms.txt [CI]"
@@ -62,101 +60,20 @@ jobs:
             echo "Pushed static/llms.txt to private repo."
           else
             echo "No changes in static/llms.txt; skipping commit."
-          fi
-
+          fi      
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v2
         with:
           hugo-version: "0.123.8"
 
-      - name: Build Hugo (watchdog + SIGQUIT + useful logs)
+      - name: Build Hugo (keep-alive)
         working-directory: docs_repo
         shell: bash
         run: |
-          set -euo pipefail
-
-          LOG="hugo.log"
-          PROGRESS_FILE=".hugo_progress_ts"
-          : > "$LOG"
-          date +%s > "$PROGRESS_FILE"
-
-          echo "Starting Hugo with watchdog..." | tee -a "$LOG"
-
-          # Keep-alive pings (separate from Hugo output)
-          ( while true; do echo "[$(date -u)] build alive"; sleep 900; done ) &
+          ( while true; do echo "[$(date)] build alive"; sleep 900; done ) &
           KEEPALIVE_PID=$!
-
-          # Run Hugo in background. Capture ALL output (including SIGQUIT stack dumps) into hugo.log.
-          (
-            hugo \
-              --logLevel info \
-              --templateMetrics \
-              --templateMetricsHints \
-              --printMemoryUsage \
-              --printPathWarnings
-          ) >>"$LOG" 2>&1 &
-          HUGO_PID=$!
-
-          echo "Hugo PID: $HUGO_PID" | tee -a "$LOG"
-
-          # Tail in background and update progress timestamp file when meaningful progress appears
-          ( tail -n 0 -F "$LOG" | while IFS= read -r line; do
-              # adjust patterns as you like:
-              if echo "$line" | grep -qE "step render substep|Start building sites|Total in"; then
-                date +%s > "$PROGRESS_FILE"
-              fi
-            done
-          ) &
-          TAIL_PID=$!
-
-          # Watchdog loop
-          while kill -0 "$HUGO_PID" 2>/dev/null; do
-            sleep 60
-
-            LAST_TS="$(cat "$PROGRESS_FILE" 2>/dev/null || echo 0)"
-            NOW="$(date +%s)"
-            IDLE=$((NOW - LAST_TS))
-
-            if [ "$IDLE" -ge $((20*60)) ]; then
-              echo "No render-step progress for 20 minutes. Dumping goroutines (SIGQUIT) for PID=$HUGO_PID..." | tee -a "$LOG"
-              echo "---- last 200 log lines before SIGQUIT ----" | tee -a "$LOG"
-              tail -n 200 "$LOG" | tee -a "$LOG" || true
-
-              # SIGQUIT triggers Go runtime stack dump to stderr (already captured in LOG)
-              kill -QUIT "$HUGO_PID" 2>/dev/null || true
-              sleep 10
-
-              echo "Stopping Hugo after stack dump..." | tee -a "$LOG"
-              kill -TERM "$HUGO_PID" 2>/dev/null || true
-              sleep 8
-
-              if kill -0 "$HUGO_PID" 2>/dev/null; then
-                kill -KILL "$HUGO_PID" 2>/dev/null || true
-              fi
-
-              exit 1
-            fi
-          done
-
-          # Wait for Hugo and collect exit code
-          wait "$HUGO_PID" || true
-          HUGO_EXIT=$?
-
-          # Cleanup
-          kill "$TAIL_PID" 2>/dev/null || true
-          kill "$KEEPALIVE_PID" 2>/dev/null || true
-
-          echo "Hugo finished with exit code $HUGO_EXIT" | tee -a "$LOG"
-          exit "$HUGO_EXIT"
-
-      - name: Upload hugo.log (always)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hugo-log
-          path: docs_repo/hugo.log
-          if-no-files-found: warn
-
+          hugo --logLevel debug --panicOnWarning --trace --printPathWarnings --printMemoryUsage
+          kill $KEEPALIVE_PID
       - name: Deploy (hugo deploy)
         working-directory: docs_repo
         env:
@@ -164,7 +81,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
         run: |
           hugo deploy --maxDeletes -1
-
       - name: Invalidate CloudFront Cache
         uses: chetan/invalidate-cloudfront-action@master
         env:
