@@ -10,7 +10,7 @@ jobs:
   build:
     name: Build and Deploy Job
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 150
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
@@ -70,64 +70,64 @@ jobs:
           hugo-version: "0.123.8"
 
       - name: Build Hugo (watchdog + real SIGQUIT)
-  working-directory: docs_repo
-  shell: bash
-  run: |
-    set -euo pipefail
-
-    LOG=hugo.log
-    : > "$LOG"
-
-    # keep-alive pings
-    ( while true; do echo "[$(date)] build alive"; sleep 900; done ) &
-    KEEPALIVE_PID=$!
-
-    # Run Hugo as a real background process; tee logs via redirection
-    hugo --logLevel info --printMemoryUsage \
-      > >(stdbuf -oL -eL tee -a "$LOG") \
-      2> >(stdbuf -oL -eL tee -a "$LOG" >&2) &
-    HUGO_PID=$!
-
-    echo "Hugo PID: $HUGO_PID"
-
-    # Track last meaningful progress line
-    LAST_TS=$(date +%s)
-
-    # Tail log in background and update LAST_TS when progress appears
-    ( tail -n 0 -F "$LOG" | while read -r line; do
-        if echo "$line" | grep -q "step render substep"; then
+        working-directory: docs_repo
+        shell: bash
+        run: |
+          set -euo pipefail
+      
+          LOG=hugo.log
+          : > "$LOG"
+      
+          # keep-alive pings
+          ( while true; do echo "[$(date)] build alive"; sleep 900; done ) &
+          KEEPALIVE_PID=$!
+      
+          # Run Hugo as a real background process; tee logs via redirection
+          hugo --logLevel info --printMemoryUsage \
+            > >(stdbuf -oL -eL tee -a "$LOG") \
+            2> >(stdbuf -oL -eL tee -a "$LOG" >&2) &
+          HUGO_PID=$!
+      
+          echo "Hugo PID: $HUGO_PID"
+      
+          # Track last meaningful progress line
           LAST_TS=$(date +%s)
-        fi
-      done
-    ) &
-    TAIL_PID=$!
-
-    # Watchdog: if no progress for 20 minutes, dump stacks + kill Hugo
-    while kill -0 "$HUGO_PID" 2>/dev/null; do
-      sleep 60
-      NOW=$(date +%s)
-      IDLE=$((NOW - LAST_TS))
-
-      if [ "$IDLE" -ge $((20*60)) ]; then
-        echo "No render-step progress for 20 minutes. Dumping goroutines (SIGQUIT) for PID=$HUGO_PID..."
-        kill -QUIT "$HUGO_PID" || true
-        sleep 8
-        echo "Stopping Hugo after stack dump..."
-        kill -TERM "$HUGO_PID" || true
-        sleep 5
-        kill -KILL "$HUGO_PID" || true
-        exit 1
-      fi
-    done
-
-    # Normal completion path
-    kill "$TAIL_PID" 2>/dev/null || true
-    wait "$HUGO_PID"
-    HUGO_EXIT=$?
-
-    kill "$KEEPALIVE_PID" 2>/dev/null || true
-    echo "Hugo finished with exit code $HUGO_EXIT"
-    exit "$HUGO_EXIT"
+      
+          # Tail log in background and update LAST_TS when progress appears
+          ( tail -n 0 -F "$LOG" | while read -r line; do
+              if echo "$line" | grep -q "step render substep"; then
+                LAST_TS=$(date +%s)
+              fi
+            done
+          ) &
+          TAIL_PID=$!
+      
+          # Watchdog: if no progress for 20 minutes, dump stacks + kill Hugo
+          while kill -0 "$HUGO_PID" 2>/dev/null; do
+            sleep 60
+            NOW=$(date +%s)
+            IDLE=$((NOW - LAST_TS))
+      
+            if [ "$IDLE" -ge $((20*60)) ]; then
+              echo "No render-step progress for 20 minutes. Dumping goroutines (SIGQUIT) for PID=$HUGO_PID..."
+              kill -QUIT "$HUGO_PID" || true
+              sleep 8
+              echo "Stopping Hugo after stack dump..."
+              kill -TERM "$HUGO_PID" || true
+              sleep 5
+              kill -KILL "$HUGO_PID" || true
+              exit 1
+            fi
+          done
+      
+          # Normal completion path
+          kill "$TAIL_PID" 2>/dev/null || true
+          wait "$HUGO_PID"
+          HUGO_EXIT=$?
+      
+          kill "$KEEPALIVE_PID" 2>/dev/null || true
+          echo "Hugo finished with exit code $HUGO_EXIT"
+          exit "$HUGO_EXIT"
 
 
       - name: Deploy (hugo deploy)
