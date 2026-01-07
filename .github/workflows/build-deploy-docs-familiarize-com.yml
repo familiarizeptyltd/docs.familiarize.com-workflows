@@ -80,7 +80,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.FAMILIARIZE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.FAMILIARIZE_SECRET_ACCESS }}
         run: |
-          hugo deploy --maxDeletes 0
+          hugo deploy --maxDeletes -1
       - name: Invalidate CloudFront Cache
         uses: chetan/invalidate-cloudfront-action@master
         env:
