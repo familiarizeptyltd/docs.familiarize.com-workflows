@@ -113,3 +113,19 @@ jobs:
             --only-show-errors \
             --delete
     
+      # --- Final: Purge Bunny CDN cache for the deployed site ---
+      - name: Purge Bunny CDN cache
+        if: success()
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+          BASE_URL:      "https://docs.familiarize.com"
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="${BASE_URL%/}/*"
+          echo "Purging Bunny CDN for: $TARGET"
+          curl -sS -G \
+            -H "X-Api-Key: ${BUNNY_API_KEY}" \
+            --data-urlencode "url=${TARGET}" \
+            "https://api.dynabic.com/bn/purge?async=true" \
+            -D - | sed -n '1,60p'
