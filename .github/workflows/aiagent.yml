@@ -149,6 +149,7 @@ jobs:
           AIAGENT_CMD="$AIAGENT_CMD --workspace \"$WORKSPACE_PATH\""
           AIAGENT_CMD="$AIAGENT_CMD --auto"
           AIAGENT_CMD="$AIAGENT_CMD --mode universal"
+          AIAGENT_CMD="$AIAGENT_CMD --no-mcp"
           AIAGENT_CMD="$AIAGENT_CMD --provider ${{ github.event.inputs.llm_provider }}"
           AIAGENT_CMD="$AIAGENT_CMD --model ${{ github.event.inputs.llm_model }}"
           # AIAGENT_CMD="$AIAGENT_CMD --redact --no-result-content"
