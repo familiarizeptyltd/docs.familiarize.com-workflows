@@ -34,6 +34,8 @@ on:
         type: choice
         options:
         - gpt-oss
+        - qwen3-235B-instruct
+        - Qwen2.5-VL-7B
         - gpt-5-mini
         - gpt-5-nano
         - gpt-4.1-mini
