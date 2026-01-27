@@ -34,6 +34,8 @@ on:
         type: choice
         options:
         - gpt-oss
+        - qwen3-235B-instruct
+        - Qwen2.5-VL-7B
         - gpt-5-mini
         - gpt-5-nano
         - gpt-4.1-mini
@@ -158,6 +160,7 @@ jobs:
           AIAGENT_CMD="$AIAGENT_CMD --no-mcp"
           AIAGENT_CMD="$AIAGENT_CMD --provider ${{ github.event.inputs.llm_provider }}"
           AIAGENT_CMD="$AIAGENT_CMD --model ${{ github.event.inputs.llm_model }}"
+          AIAGENT_CMD="$AIAGENT_CMD --log-level DEBUG"
           # AIAGENT_CMD="$AIAGENT_CMD --redact --no-result-content"
           
           # Execute
