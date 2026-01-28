@@ -174,9 +174,20 @@ jobs:
         run: |
           cd target-repo
           
+          # Refresh remote state before checking for new commits
+          git fetch origin main
+
           # Check if there are any commits to push
           if git log origin/main..HEAD --oneline | grep -q .; then
             echo "Changes detected, pushing to remote..."
+            
+            # Fetch and rebase to handle concurrent changes
+            git rebase origin/main || {
+              echo "⚠️ Rebase conflict - attempting merge instead"
+              git rebase --abort || true
+              git pull --no-edit origin main
+            }
+            
             git push origin main
             echo "✓ Changes pushed successfully"
           else
