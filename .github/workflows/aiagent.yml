@@ -178,7 +178,7 @@ jobs:
             # Fetch and rebase to handle concurrent changes
             git rebase origin/main || {
               echo "⚠️ Rebase conflict - attempting merge instead"
-              git rebase --abort
+              git rebase --abort || true
               git pull --no-edit origin main
             }
             
