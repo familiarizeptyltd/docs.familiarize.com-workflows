@@ -2,16 +2,16 @@ name: docs.familiarize.com (Build & Deploy)
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["docs.familiarize.com (Translate)"]
-    types: [completed]
+  #workflow_run:
+    #workflows: ["docs.familiarize.com (Translate)"]
+    #types: [completed]
 
 jobs:
   build:
     name: Build and Deploy Job
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    #if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout workflows repo
