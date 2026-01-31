@@ -75,7 +75,7 @@ jobs:
         run: |
           ( while true; do echo "[$(date)] build alive"; sleep 900; done ) &
           KEEPALIVE_PID=$!
-          hugo --logLevel debug --panicOnWarning --trace --printPathWarnings --printMemoryUsage
+          hugo --minify --gc --cleanDestinationDir
           kill $KEEPALIVE_PID
 
       # (Recommended) Ensure AWS CLI exists (ubuntu-latest usually has it, but this makes it deterministic)
