@@ -90,6 +90,16 @@ on:
         required: false
         type: boolean
         default: false
+      push_target_repo_changes:
+        description: 'Enable push step for target repository changes'
+        required: false
+        type: boolean
+        default: false
+      aiagent_self_update:
+        description: 'Enable aiagent self-update steps (generated tools/servers push)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   execute-task:
@@ -228,7 +238,7 @@ jobs:
         working-directory: aiagent
 
       - name: Push changes to target repository
-        if: success()
+        if: success() && github.event.inputs.push_target_repo_changes == 'true'
         run: |
           cd target-repo
           
@@ -255,6 +265,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
 
       - name: Check for aiagent Updates
+        if: github.event.inputs.aiagent_self_update == 'true'
         id: check_updates
         run: |
           cd aiagent
@@ -266,7 +277,7 @@ jobs:
           fi
 
       - name: Update aiagent Repository (if needed)
-        if: steps.check_updates.outputs.updates_needed == 'true'
+        if: github.event.inputs.aiagent_self_update == 'true' && steps.check_updates.outputs.updates_needed == 'true'
         env:
           GH_TOKEN: ${{ secrets.AI_AGENT_REPO_TOKEN }}
         run: |
