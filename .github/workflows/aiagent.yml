@@ -42,6 +42,54 @@ on:
         - gpt-4.1-mini
         - gpt-4.1-nano
         - gpt-4o-mini
+      mode:
+        description: 'aiAgent mode'
+        required: false
+        default: 'universal'
+        type: choice
+        options:
+        - universal
+        - orchestrator
+        - architect
+        - coder
+        - debugger
+      methodology:
+        description: 'Execution methodology'
+        required: false
+        default: 'hybrid'
+        type: choice
+        options:
+        - legacy
+        - hybrid
+      mcp_mode:
+        description: 'MCP flag behavior'
+        required: false
+        default: 'disable'
+        type: choice
+        options:
+        - disable
+        - enable
+        - default
+      log_level:
+        description: 'CLI log level'
+        required: false
+        default: 'debug'
+        type: choice
+        options:
+        - debug
+        - info
+        - warning
+        - error
+      redact:
+        description: 'Enable --redact'
+        required: false
+        type: boolean
+        default: false
+      no_result_content:
+        description: 'Enable --no-result-content'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   execute-task:
@@ -151,13 +199,27 @@ jobs:
           # Add common parameters
           AIAGENT_CMD="$AIAGENT_CMD --workspace \"$WORKSPACE_PATH\""
           AIAGENT_CMD="$AIAGENT_CMD --auto"
-          AIAGENT_CMD="$AIAGENT_CMD --mode universal"
-          AIAGENT_CMD="$AIAGENT_CMD --methodology hybrid"
-          AIAGENT_CMD="$AIAGENT_CMD --no-mcp"
+          AIAGENT_CMD="$AIAGENT_CMD --mode ${{ github.event.inputs.mode }}"
+          AIAGENT_CMD="$AIAGENT_CMD --methodology ${{ github.event.inputs.methodology }}"
+          
+          # MCP flag mode
+          if [ "${{ github.event.inputs.mcp_mode }}" = "disable" ]; then
+            AIAGENT_CMD="$AIAGENT_CMD --no-mcp"
+          elif [ "${{ github.event.inputs.mcp_mode }}" = "enable" ]; then
+            AIAGENT_CMD="$AIAGENT_CMD --mcp"
+          fi
+
           AIAGENT_CMD="$AIAGENT_CMD --provider ${{ github.event.inputs.llm_provider }}"
           AIAGENT_CMD="$AIAGENT_CMD --model ${{ github.event.inputs.llm_model }}"
-          AIAGENT_CMD="$AIAGENT_CMD --log-level DEBUG"
-          # AIAGENT_CMD="$AIAGENT_CMD --redact --no-result-content"
+          AIAGENT_CMD="$AIAGENT_CMD --log-level ${{ github.event.inputs.log_level }}"
+          
+          # Optional security/output flags
+          if [ "${{ github.event.inputs.redact }}" = "true" ]; then
+            AIAGENT_CMD="$AIAGENT_CMD --redact"
+          fi
+          if [ "${{ github.event.inputs.no_result_content }}" = "true" ]; then
+            AIAGENT_CMD="$AIAGENT_CMD --no-result-content"
+          fi
           
           # Execute
           echo "Executing: $AIAGENT_CMD"
