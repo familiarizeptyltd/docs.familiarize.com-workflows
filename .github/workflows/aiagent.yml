@@ -125,7 +125,7 @@ jobs:
       - name: Checkout target repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ secrets.REPO }}
+          repository: ${{ github.event.inputs.target_repo }}
           token: ${{ secrets.REPO_TOKEN }}
           path: target-repo
           fetch-depth: 0
@@ -175,6 +175,7 @@ jobs:
           CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+          AIAGENT_FORCE_LEGACY_METHODOLOGY: ${{ vars.AIAGENT_FORCE_LEGACY_METHODOLOGY }}
         run: |
           set -e
           
@@ -243,22 +244,29 @@ jobs:
         if: success() && github.event.inputs.push_target_repo_changes == 'true'
         run: |
           cd target-repo
-          
+
+          # Detect default branch dynamically
+          DEFAULT_BRANCH="$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')"
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            DEFAULT_BRANCH="main"
+          fi
+          echo "Target default branch: $DEFAULT_BRANCH"
+
           # Refresh remote state before checking for new commits
-          git fetch origin main
+          git fetch origin "$DEFAULT_BRANCH"
 
           # Check if there are any commits to push
-          if git log origin/main..HEAD --oneline | grep -q .; then
+          if git log "origin/$DEFAULT_BRANCH"..HEAD --oneline | grep -q .; then
             echo "Changes detected, pushing to remote..."
             
             # Fetch and rebase to handle concurrent changes
-            git rebase origin/main || {
+            git rebase "origin/$DEFAULT_BRANCH" || {
               echo "⚠️ Rebase conflict - attempting merge instead"
               git rebase --abort || true
-              git pull --no-edit origin main
+              git pull --no-edit origin "$DEFAULT_BRANCH"
             }
             
-            git push origin main
+            git push origin "HEAD:$DEFAULT_BRANCH"
             echo "✓ Changes pushed successfully"
           else
             echo "No changes to push"
