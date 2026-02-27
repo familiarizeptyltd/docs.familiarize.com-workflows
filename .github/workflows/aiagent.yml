@@ -122,10 +122,51 @@ jobs:
           path: aiagent
           fetch-depth: 0
 
+      - name: Resolve target repository
+        id: resolve_target_repo
+        env:
+          INPUT_TARGET_REPO: ${{ github.event.inputs.target_repo }}
+          FALLBACK_TARGET_REPO: ${{ secrets.REPO }}
+          REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          set -e
+
+          check_repo_access() {
+            local repo="$1"
+            if [ -z "$repo" ]; then
+              echo "empty"
+              return
+            fi
+            curl -s -o /tmp/repo_check.json -w "%{http_code}" \
+              -H "Authorization: token $REPO_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repo"
+          }
+
+          CHOSEN_REPO="$INPUT_TARGET_REPO"
+          STATUS="$(check_repo_access "$CHOSEN_REPO")"
+
+          if [ "$STATUS" != "200" ]; then
+            echo "⚠ Input target_repo '$INPUT_TARGET_REPO' not accessible (HTTP $STATUS). Falling back to secrets.REPO."
+            CHOSEN_REPO="$FALLBACK_TARGET_REPO"
+            STATUS="$(check_repo_access "$CHOSEN_REPO")"
+          fi
+
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Target repository resolution failed."
+            echo "   input target_repo: '$INPUT_TARGET_REPO'"
+            echo "   fallback secrets.REPO: '$FALLBACK_TARGET_REPO'"
+            echo "   final HTTP status: $STATUS"
+            exit 1
+          fi
+
+          echo "Resolved target repository: $CHOSEN_REPO"
+          echo "repository=$CHOSEN_REPO" >> "$GITHUB_OUTPUT"
+
       - name: Checkout target repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.event.inputs.target_repo }}
+          repository: ${{ steps.resolve_target_repo.outputs.repository }}
           token: ${{ secrets.REPO_TOKEN }}
           path: target-repo
           fetch-depth: 0
