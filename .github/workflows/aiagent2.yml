@@ -51,15 +51,7 @@ on:
         - orchestrator
         - architect
         - coder
-        - debugger
-      methodology:
-        description: 'Execution methodology'
-        required: false
-        default: 'hybrid'
-        type: choice
-        options:
-        - legacy
-        - hybrid
+        - debugger      
       mcp_mode:
         description: 'MCP flag behavior'
         required: false
@@ -221,7 +213,6 @@ jobs:
           CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
-          AIAGENT_FORCE_LEGACY_METHODOLOGY: ${{ vars.AIAGENT_FORCE_LEGACY_METHODOLOGY }}
         run: |
           set -e
           
@@ -257,7 +248,6 @@ jobs:
           AIAGENT_CMD+=(--workspace "$WORKSPACE_PATH")
           AIAGENT_CMD+=(--auto)
           AIAGENT_CMD+=(--mode "${{ github.event.inputs.mode }}")
-          AIAGENT_CMD+=(--methodology "${{ github.event.inputs.methodology }}")
 
           # MCP flag mode
           if [ "${{ github.event.inputs.mcp_mode }}" = "disable" ]; then
