@@ -260,16 +260,7 @@ jobs:
             # Direct content prompt
             echo "Using direct prompt content"
             PROMPT_FILE="$RUNNER_TEMP/aiagent-direct-prompt.md"
-            python - "$GITHUB_EVENT_PATH" "$PROMPT_FILE" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-event_path = Path(sys.argv[1])
-prompt_path = Path(sys.argv[2])
-prompt_text = json.loads(event_path.read_text(encoding="utf-8"))["inputs"]["prompt"]
-prompt_path.write_text(prompt_text, encoding="utf-8")
-PY
+            python -c "import json, pathlib, sys; prompt_text = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))['inputs']['prompt']; pathlib.Path(sys.argv[2]).write_text(prompt_text, encoding='utf-8')" "$GITHUB_EVENT_PATH" "$PROMPT_FILE"
             AIAGENT_CMD+=(--file "$PROMPT_FILE")
           fi
           
