@@ -231,7 +231,6 @@ jobs:
           CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
-          INPUT_PROMPT: ${{ github.event.inputs.prompt }}
         run: |
           set -e
           
@@ -260,7 +259,18 @@ jobs:
           else
             # Direct content prompt
             echo "Using direct prompt content"
-            AIAGENT_CMD+=("$INPUT_PROMPT")
+            PROMPT_FILE="$RUNNER_TEMP/aiagent-direct-prompt.md"
+            python - "$GITHUB_EVENT_PATH" "$PROMPT_FILE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+event_path = Path(sys.argv[1])
+prompt_path = Path(sys.argv[2])
+prompt_text = json.loads(event_path.read_text(encoding="utf-8"))["inputs"]["prompt"]
+prompt_path.write_text(prompt_text, encoding="utf-8")
+PY
+            AIAGENT_CMD+=(--file "$PROMPT_FILE")
           fi
           
           # Add common parameters
