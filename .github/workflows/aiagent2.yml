@@ -244,7 +244,8 @@ jobs:
           # Handle prompt (file or direct content)
           if [ "${{ github.event.inputs.prompt_is_file }}" = "true" ]; then
             # File prompt
-            PROMPT_FILE="$WORKSPACE_PATH/${{ github.event.inputs.prompt }}"
+            PROMPT_REL_PATH="$(python -c "import json, pathlib; print(json.loads(pathlib.Path('$GITHUB_EVENT_PATH').read_text(encoding='utf-8'))['inputs']['prompt'])")"
+            PROMPT_FILE="$WORKSPACE_PATH/$PROMPT_REL_PATH"
             
             # Verify file exists
             if [ ! -f "$PROMPT_FILE" ]; then
