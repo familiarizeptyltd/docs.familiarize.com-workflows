@@ -201,6 +201,24 @@ jobs:
           git config user.email "aiagent@aiagent.com"
           cd ..
 
+      - name: Install matching workspace skill pack when available
+        run: |
+          set -e
+
+          WORKSPACE_PATH="$(cd target-repo && pwd)"
+          TARGET_REPO_NAME="${{ steps.resolve_target_repo.outputs.repository }}"
+          REPO_SLUG="${TARGET_REPO_NAME##*/}"
+          PACK_SLUG="${REPO_SLUG//./-}"
+          PACK_PATH="$(pwd)/aiagent/aiagent/skill-packs/$PACK_SLUG"
+
+          if [ -d "$PACK_PATH" ]; then
+            echo "Installing local skill pack: $PACK_PATH"
+            cd aiagent
+            python -m aiagent.cli.main skills install "$PACK_PATH" --workspace "$WORKSPACE_PATH" --force
+          else
+            echo "No matching local skill pack found for target repo '$TARGET_REPO_NAME' (expected: $PACK_PATH)"
+          fi
+
       - name: Execute aiAgent
         env:
           PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
@@ -213,6 +231,7 @@ jobs:
           CUSTOM_SEARCH_ENGINE_ID: ${{ secrets.CUSTOM_SEARCH_ENGINE_ID }}
           GH_TOKEN: ${{ secrets.REPO_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+          INPUT_PROMPT: ${{ github.event.inputs.prompt }}
         run: |
           set -e
           
@@ -241,7 +260,7 @@ jobs:
           else
             # Direct content prompt
             echo "Using direct prompt content"
-            AIAGENT_CMD+=("${{ github.event.inputs.prompt }}")
+            AIAGENT_CMD+=("$INPUT_PROMPT")
           fi
           
           # Add common parameters
